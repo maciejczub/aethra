@@ -71,11 +71,13 @@ h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
 .card.wide { grid-column: 1 / -1; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
-.field { display: grid; grid-template-columns: 200px 1fr; gap: 6px 14px; align-items: center; padding: 7px 0; border-bottom: 1px dashed rgba(255,255,255,.04); }
+.field { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 6px 14px; align-items: center; padding: 7px 0; border-bottom: 1px dashed rgba(255,255,255,.04); }
 .field:last-child { border-bottom: none; }
 .field label { font-weight: 500; }
 .field .help { grid-column: 2; font-size: 12px; color: var(--muted); line-height: 1.35; }
-.field .ctl { display: flex; gap: 8px; align-items: center; }
+.field .ctl { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.field .ctl > * { min-width: 0; max-width: 100%; }
+select { max-width: 100%; text-overflow: ellipsis; }
 .field .ctl input:not([type=checkbox]):not([type=color]), .field .ctl select { flex: 1; }
 .field .reset { visibility: hidden; font-size: 11px; padding: 3px 7px; }
 .field.set .reset { visibility: visible; }

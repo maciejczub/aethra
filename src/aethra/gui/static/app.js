@@ -410,6 +410,8 @@ function render() {
   renderNav();
   const page = document.getElementById("page");
   const scroll = page.scrollTop;
+  const evOld = document.getElementById("live-events");
+  const evScroll = evOld ? evOld.scrollTop : 0;
   page.innerHTML = "";
   if (!S.data && !["yaml", "windows", "logs", "checks", "codec"].includes(S.page)) {
     page.append(noConfigPage());
@@ -419,6 +421,8 @@ function render() {
     inputs: pageInputs, sync: pageSync, media: pageMedia, checks: pageChecks, codec: pageCodec, windows: pageWindows, logs: pageLogs, yaml: pageYaml }[S.page];
   page.append(fn());
   page.scrollTop = scroll;
+  const evNew = document.getElementById("live-events");
+  if (evNew) evNew.scrollTop = evScroll;
 }
 
 function noConfigPage() {
@@ -431,7 +435,7 @@ function noConfigPage() {
 
 // ---- live
 
-let liveEventsName = null;
+let liveEvents = { name: null, events: [], json: "" };  // kept between re-renders: no flashing
 function pageLive() {
   const st = S.status;
   const cues = (S.data && S.data.cues) || [];
@@ -485,9 +489,11 @@ function pageLive() {
       h("span", { class: "num" }, i + 1), h("b", {}, c.id), h("span", {}, c.title || ""), h("span", { class: "spacer" }),
       c.midi_note != null ? h("span", { class: "pill" }, `note ${c.midi_note}`) : null))));
 
-  const events = h("div", { class: "card wide" }, h("div", { class: "row" }, h("h2", {}, "Event log"), h("span", { class: "spacer" }), h("small", { id: "ev-name" })), h("div", { class: "events", id: "live-events" }));
+  const evBox = h("div", { class: "events", id: "live-events" });
+  renderEvents(evBox, liveEvents.events, true);
+  const events = h("div", { class: "card wide" }, h("div", { class: "row" }, h("h2", {}, "Event log"), h("span", { class: "spacer" }), h("small", { id: "ev-name" }, liveEvents.name || "")), evBox);
   wrap.append(h("div", { class: "stage" }, h("div", {}, onair, h("div", { style: { height: "16px" } }), controls), setlist), h("div", { style: { height: "16px" } }), events);
-  loadLiveEvents();
+  if (!liveEvents.json) loadLiveEvents();
   return wrap;
 }
 
@@ -495,10 +501,13 @@ async function loadLiveEvents() {
   const box = document.getElementById("live-events");
   if (!box) return;
   const r = await api.post("/api/log", { data: S.data, limit: 200 });
-  if (!document.getElementById("live-events")) return;
-  liveEventsName = r.name;
+  const json = JSON.stringify(r);
+  if (json === liveEvents.json) return;  // nothing new: leave the list alone
+  liveEvents = { name: r.name, events: r.events || [], json };
+  const now = document.getElementById("live-events");
+  if (!now) return;
   document.getElementById("ev-name").textContent = r.name || "";
-  renderEvents(box, r.events || [], true);
+  renderEvents(now, liveEvents.events, true);
 }
 
 function renderEvents(box, events, newestFirst) {
