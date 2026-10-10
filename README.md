@@ -35,9 +35,14 @@ controlled over JSON IPC). Runtime dependencies: Python ≥ 3.11 and PyYAML; the
 Windows bundle includes both.
 
 > **Status: 0.1, not yet used on stage.** The core is covered by unit tests and
-> by integration tests against a real mpv on Linux. The Windows-specific parts
-> (window stacking, WinMM MIDI, global hotkeys, backdrop window) must be
-> validated on the show laptop first — see [docs/testing.md](docs/testing.md).
+> by integration tests against a real mpv on Linux. On a Windows 11 desktop
+> with mpv 0.41 the following was verified: named-pipe IPC (0.1 ms round
+> trip), playback locked to the system clock, window stacking and the black
+> backdrop (screenshots of the stage output), a killed player replaced with the
+> song rejoined in sync, and a killed controller taking over the running
+> players without interrupting the picture. Still to verify on the show laptop:
+> MIDI from a real device (WinMM), global hotkeys during a show, display
+> hot-plug and the codec choice — see [docs/testing.md](docs/testing.md).
 
 ## Getting started on the show laptop
 
@@ -57,10 +62,10 @@ Windows bundle includes both.
 
    ```bat
    cd C:\Aethra
-   Aethra.cmd devices
-   Aethra.cmd check
-   Aethra.cmd verify
-   Aethra.cmd selftest --windows
+   .\Aethra.cmd devices
+   .\Aethra.cmd check
+   .\Aethra.cmd verify
+   .\Aethra.cmd selftest --windows
    ```
 
 4. Create the desktop shortcut (and optionally autostart):
@@ -93,7 +98,7 @@ Running a show: [docs/operation.md](docs/operation.md).
 | `aethra report [logs]` | Post-show summary of the newest event log. |
 | `aethra send ADDRESS [ARGS]` | Send one OSC message (testing). |
 
-On the laptop every command is also available as `Aethra.cmd <command> ...`.
+On the laptop every command is also available as `.\Aethra.cmd <command> ...` (in cmd and PowerShell).
 
 ## Documentation
 

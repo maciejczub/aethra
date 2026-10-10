@@ -8,8 +8,8 @@
 3. In the Aethra folder:
 
    ```bat
-   Aethra.cmd check
-   Aethra.cmd verify --quick
+   .\Aethra.cmd check
+   .\Aethra.cmd verify --quick
    ```
 
    `check` must end with `OK`: configuration, every media file, the MIDI port
@@ -84,7 +84,7 @@ fade to the filler, the next clip is already waiting.
 ## After the show
 
 ```bat
-Aethra.cmd report
+.\Aethra.cmd report
 ```
 
 Prints every cue with its trigger source, start latency, dropped frames and

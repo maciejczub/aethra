@@ -43,7 +43,7 @@ python tools/make_test_clips.py sync --out test-clips      # latency/sync kit
 Start with the automatic measurements:
 
 ```bat
-Aethra.cmd selftest --windows
+.\Aethra.cmd selftest --windows
 ```
 
 It reports the IPC round trip over the named pipe, the timer accuracy, whether
@@ -70,6 +70,10 @@ must be understood before going further.
 V2 and V9 are the two items that depend most on the particular laptop, GPU
 driver and Windows build — do not skip them.
 
+The frame counter in mpv's test overlay can be one frame behind the picture
+(it is drawn from the position mpv reports). For measurements, use clips with
+burned-in numbers (`tools/make_test_clips.py`) and read those.
+
 ## 3. Rehearsal tests (from the project brief)
 
 Run with the real REAPER project, the final media and the final cabling. Keep
@@ -84,7 +88,7 @@ dropped frames (`drop` = 0) and `max drift` below one frame (40 ms) for every cu
 
 Without REAPER (for example as an overnight soak test of the laptop) enable OSC
 in the show file, start the show, and in a second console run
-`Aethra.cmd rehearse --loops 2`: it triggers every cue in order, waits for each
+`.\Aethra.cmd rehearse --loops 2`: it triggers every cue in order, waits for each
 clip to end plus a gap, and repeats the set.
 
 ### Test 2 — unplug and replug MIDI / network during a song

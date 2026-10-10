@@ -97,7 +97,7 @@ def build_report(records: list[dict[str, Any]]) -> str:
         flag = "  RESUMED" if run.resume else ""
         out.append(
             f"  {run.wall:<12} {run.cue:<8} {run.deck:<4} {run.source[:22]:<22} "
-            f"{_ms(run.trigger_to_play_ms):>8} {_ms(run.late_ms):>6} {(f'{played:.0f}s' if played else '-'):>7} "
+            f"{_ms(None if run.resume else run.trigger_to_play_ms):>8} {_ms(run.late_ms):>6} {(f'{played:.0f}s' if played else '-'):>7} "
             f"{drops if st else '-':>5} {delayed if delayed is not None else '-':>7} {(f'{drift:.0f}ms' if drift is not None else '-'):>9}{flag}"
         )
 

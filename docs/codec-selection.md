@@ -33,7 +33,7 @@ square pixels. Encode every clip of the set the same way.
    show (resolution, 50 Hz), power plugged in:
 
    ```bat
-   Aethra.cmd bench test-clips\*.mp4 test-clips\*.mov test-clips\*.avi --config show.yaml --seconds 60
+   .\Aethra.cmd bench test-clips\*.mp4 test-clips\*.mov test-clips\*.avi --config show.yaml --seconds 60
    ```
 
    Every file is played full screen on the stage output like a real deck, once

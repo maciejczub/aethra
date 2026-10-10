@@ -174,7 +174,7 @@ MIDI Setup*, MIDI Network Setup) on that side. rtpMIDI is compatible with it.
 
 - Aethra opens the MIDI input whose name contains `midi.port` (not case
   sensitive): `midi.port: "AETHRA-STAGE"`, as in the example configuration.
-  `Aethra.cmd devices` lists the exact names.
+  `.\Aethra.cmd devices` lists the exact names.
 - With the classic Windows MIDI stack (WinMM), a port can usually be opened by
   only one program at a time. This is typical of USB class-compliant
   interfaces. rtpMIDI's ports come from Tobias Erichsen's virtualMIDI driver,
@@ -187,8 +187,8 @@ MIDI Setup*, MIDI Network Setup) on that side. rtpMIDI is compatible with it.
   give ports new-style names. Microsoft listed "Dynamic ports (loopMIDI, …,
   rtpMIDI, …) are not always visible" as a known issue, and a fix started
   rolling out on 30 April 2026. Install Windows updates well before a tour (not
-  on show day). After every update, check that `Aethra.cmd devices` still lists
-  the port under the same name. `Aethra.cmd check`, part of the pre-show routine
+  on show day). After every update, check that `.\Aethra.cmd devices` still lists
+  the port under the same name. `.\Aethra.cmd check`, part of the pre-show routine
   in [operation.md](operation.md), reports a missing port.
 
 ### 2.6 Alternative: USB MIDI interfaces and a MIDI cable
@@ -197,7 +197,7 @@ MIDI Setup*, MIDI Network Setup) on that side. rtpMIDI is compatible with it.
    laptop's interface (at most 15 m).
 2. In REAPER, enable the interface's output as in 2.4.
 3. On the laptop, set `midi.port` to a distinctive part of the interface's
-   input name (`Aethra.cmd devices`).
+   input name (`.\Aethra.cmd devices`).
 4. Turn off USB power saving on both computers (see
    [windows-setup.md](windows-setup.md)).
 5. Bandwidth is no issue. A note-on takes about 1 ms on a 5-pin MIDI cable, and
@@ -415,7 +415,7 @@ touching REAPER. MTC goes to the same port as the cue notes.
    channels*. MTC has no channel; REAPER does not rewrite system messages.
 6. Lock the item and do not mute the track. You do not need *Send clock to this
    device* for MTC from the generator.
-7. Check on the laptop while the show is not running: run `Aethra.cmd monitor`
+7. Check on the laptop while the show is not running: run `.\Aethra.cmd monitor`
    and play in REAPER. Once a second it prints a line like `MTC running
    00:01:23:04 (25 fps)`, which must match REAPER's time display.
 
@@ -527,7 +527,7 @@ cues:
 
 - `scripts/windows/prepare-stage-laptop.ps1` creates the inbound firewall rule
   for UDP 9000 on the laptop.
-- Check with `Aethra.cmd monitor` (show not running). It prints each message
+- Check with `.\Aethra.cmd monitor` (show not running). It prints each message
   with the sender's address, for example `/lastmarker/name ['03']` from
   `192.168.77.1`.
 
@@ -601,13 +601,13 @@ the laptop is not possible, and measure it with the sync kit.
 
 ## 8. Troubleshooting
 
-Run `Aethra.cmd monitor` on the laptop (show not running) and play the cue
+Run `.\Aethra.cmd monitor` on the laptop (show not running) and play the cue
 track. It prints every note, Program Change and OSC message, and the MTC status
 once a second.
 
 | Symptom | Check / fix |
 |---|---|
-| `monitor` shows nothing | In rtpMIDI, both sessions are *Enabled* and each computer lists the other under *Participants*. REAPER *MIDI Outputs*: the port is enabled. Track routing: *MIDI Hardware Output* is the port, and the track and item are not muted. `midi.port` matches a name in `Aethra.cmd devices`. No other program on the laptop holds the port. |
+| `monitor` shows nothing | In rtpMIDI, both sessions are *Enabled* and each computer lists the other under *Participants*. REAPER *MIDI Outputs*: the port is enabled. Track routing: *MIDI Hardware Output* is the port, and the track and item are not muted. `midi.port` matches a name in `.\Aethra.cmd devices`. No other program on the laptop holds the port. |
 | The port is missing in REAPER | The session was created or renamed after REAPER started. Reopen *Preferences > Audio > MIDI Outputs* or click *Reset all MIDI devices*, then pick the port again in the track routing. |
 | The port is missing on the laptop | Disable and re-enable the rtpMIDI session, or reboot. On Windows 11 with Windows MIDI Services, install the updates (dynamic ports such as rtpMIDI were a known issue, fixed from April 2026) and check whether the port name changed. |
 | Notes arrive but nothing starts | The channel in `monitor` does not match `midi.channel`, or the note number does not match `midi_note` (octave naming, 4.2). |
@@ -633,8 +633,8 @@ once a second.
 5. Chase is off, *Repeat* is off, and no MIDI editor is open for the cue track.
 6. *Close audio device when stopped and application is inactive* is off. The
    REAPER computer does not sleep, update or show notifications.
-7. On the laptop, before starting the show: `Aethra.cmd check` says OK, and
-   `Aethra.cmd monitor` shows the first song's note on channel 16 and `MTC
+7. On the laptop, before starting the show: `.\Aethra.cmd check` says OK, and
+   `.\Aethra.cmd monitor` shows the first song's note on channel 16 and `MTC
    running` while REAPER plays its first seconds. Stop `monitor`, start the
    show, and play the first trigger once ([operation.md](operation.md)).
 8. If anything was edited since the last rehearsal: are the `mtc_start` values

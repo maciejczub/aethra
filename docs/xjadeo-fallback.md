@@ -413,7 +413,7 @@ want to be on top on the stage display.
 | Black window with `[right-click]` | No file loaded: check `VIDEO` in the launcher. |
 | "Indexing. Please wait." | The file is not all-intra. Wait, or transcode it to MJPEG (4.2). |
 | "Index Error. File is not suitable." | Keyframes too far apart, or a damaged file. Transcode to MJPEG. |
-| The picture does not move while REAPER plays | Wrong `MIDI_IN` (an output, or another port); Aethra or `aethra monitor` still holds the port; `-d portmidi` missing; REAPER sends no MTC. Quit xjadeo and check MTC with `Aethra.cmd monitor`. |
+| The picture does not move while REAPER plays | Wrong `MIDI_IN` (an output, or another port); Aethra or `aethra monitor` still holds the port; `-d portmidi` missing; REAPER sends no MTC. Quit xjadeo and check MTC with `.\Aethra.cmd monitor`. |
 | The picture moves but shows the wrong place | The video was built for another REAPER layout or `--start`; REAPER's project start time or the generator's *Start time* was changed; `OFFSET`. |
 | Grey cross on black | The timecode is before the start or after the end of the video, or the frame cannot be decoded. |
 | The picture is one to three frames late | Increase `OFFSET` (keys `=` / `-` to find the value). |
