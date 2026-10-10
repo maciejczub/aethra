@@ -61,7 +61,7 @@ not work.
 | `→` / `↓` | Select the next cue (without starting it) — e.g. a song was dropped. |
 | `←` / `↑` | Select the previous cue. |
 | `B` or `Esc` | **Blackout** on/off. Cues keep running underneath and stay in sync. |
-| `F` | Fade to the filler now. |
+| `F` | The filler now (a song on stage leaves with its out-transition). |
 | `Ctrl+T` | Test overlay on/off (timecode, frame number, drift). |
 | `Ctrl+Shift+Q` twice | Quit (also `Ctrl+C` twice in the console). |
 
@@ -70,8 +70,9 @@ All keys can be changed in `show.yaml` (`keyboard.keys`).
 ## During the show
 
 Normally nothing: the intro plays until the first trigger, every song is
-started by its trigger, a clip ends with a fade to the filler (after the last
-song: the outro, if configured), and the next clip is already waiting.
+started by its trigger (with its in-transition), the out-transition to the
+filler starts shortly before the clip ends (after the last song: to the outro,
+if configured), and the next clip is already waiting.
 The intro and outro can also be called at any time through command notes, OSC
 (`/aethra/intro`, `/aethra/outro`) or keys bound in `keyboard.keys`.
 
@@ -83,6 +84,7 @@ The intro and outro can also be called at any time through command notes, OSC
 | Wrong cue on stage | `F` (filler) or `B`. |
 | `MIDI waiting`/`lost` | Check the cable/session; triggers work again as soon as the port is back. Use `Space` meanwhile. |
 | A video player crashed (`DOWN`) | Nothing: the filler covered it and the song is rejoined automatically. |
+| The whole picture went black for a second | The compositor was restarted (logged as `compositor_down`); the filler comes back and a running song rejoins by itself. |
 | The console window was closed | The picture keeps running (the players are left alone on purpose). Start the Aethra shortcut again: it takes over the running song. |
 
 ## After the show

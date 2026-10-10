@@ -14,12 +14,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aethra.blend import TRANSITION_TYPES
 from aethra.keys import KeySpecError, parse_key_spec
 
 COMMANDS = ("go", "next", "prev", "black", "filler", "intro", "outro", "test", "quit")
 ON_END = ("filler", "hold", "black")
 FILLER_MODES = ("color", "image", "loop")
 MTC_ON_STOP = ("continue", "filler")
+ENGINES = ("compositor", "windows")
+MAX_XFADE = 30.0
 
 DEFAULT_KEYS: dict[str, tuple[str, ...]] = {
     "go": ("space",),
@@ -45,6 +48,7 @@ class StageConfig:
     width: int = 1920
     height: int = 1080
     fps: float = 25.0
+    engine: str = "compositor"
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class MpvConfig:
     priority: str = "above_normal"
     extra_args: tuple[str, ...] = ()
     startup_timeout: float = 15.0
+    libmpv: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,8 +73,12 @@ class FillerConfig:
 
 @dataclass(frozen=True)
 class TransitionConfig:
-    fade_out: float = 0.5
-    fade_in: float = 0.5
+    """How a cue comes on stage (in) and leaves it (out), whatever the other picture is."""
+
+    xfade_in_duration: float = 0.0
+    xfade_in_type: str = "fade"
+    xfade_out_duration: float = 1.0
+    xfade_out_type: str = "fade"
 
 
 @dataclass(frozen=True)
@@ -164,7 +173,7 @@ class Cue:
     osc: OscTrigger | None = None
     offset: float = 0.0
     on_end: str = "filler"
-    fade_in: float = 0.0
+    transitions: TransitionConfig = TransitionConfig()  # the global settings with this cue's overrides
     mtc_start: float | None = None
 
     @property
@@ -351,7 +360,7 @@ def parse_config(data: Any, path: Path) -> Config:
     keyboard = _parse_keyboard(root.section("keyboard"))
     logging_cfg = _parse_logging(root.section("logging"), base_dir)
     test_mode = root.get("test_mode", bool, False)
-    cues = _parse_cues(root.raw("cues"), media_dir, stage.fps, midi, problems, warnings)
+    cues = _parse_cues(root.raw("cues"), media_dir, stage.fps, midi, transitions, problems, warnings)
     root.finish()
 
     if problems:
@@ -386,6 +395,7 @@ def _parse_stage(s: _Section) -> StageConfig:
         width=s.get("width", int, 1920, minimum=16),
         height=s.get("height", int, 1080, minimum=16),
         fps=s.get("fps", float, 25.0, minimum=1.0, maximum=240.0),
+        engine=s.get("engine", str, "compositor", choices=ENGINES),
     )
     s.finish()
     return cfg
@@ -402,6 +412,9 @@ def _parse_mpv(s: _Section, base_dir: Path) -> MpvConfig:
         s.problems.append("mpv.extra_args: must be a list of strings")
         extra = []
     vo = s.get("vo", str, None, nullable=True)
+    libmpv = s.get("libmpv", str, None, nullable=True)
+    if libmpv and any(sep in libmpv for sep in ("/", "\\")):
+        libmpv = str(_resolve(base_dir, libmpv))
     cfg = MpvConfig(
         path=path,
         hwdec=s.get("hwdec", str, "auto-safe"),
@@ -409,6 +422,7 @@ def _parse_mpv(s: _Section, base_dir: Path) -> MpvConfig:
         priority=s.get("priority", str, "above_normal", choices=("normal", "above_normal", "high")),
         extra_args=tuple(extra),
         startup_timeout=s.get("startup_timeout", float, 15.0, minimum=1.0),
+        libmpv=libmpv or None,
     )
     s.finish()
     return cfg
@@ -431,11 +445,25 @@ def _parse_filler(s: _Section, media_dir: Path, warnings: list[str], section: st
     return FillerConfig(mode=mode, file=file, color=color)
 
 
-def _parse_transitions(s: _Section) -> TransitionConfig:
-    cfg = TransitionConfig(
-        fade_out=s.get("fade_out", float, 0.5, minimum=0.0, maximum=10.0),
-        fade_in=s.get("fade_in", float, 0.5, minimum=0.0, maximum=10.0),
+def _transition_keys(s: _Section, base: TransitionConfig) -> TransitionConfig:
+    """The four xfade keys, read from a section; missing keys come from ``base``."""
+    return TransitionConfig(
+        xfade_in_duration=s.get("xfade_in_duration", float, base.xfade_in_duration, minimum=0.0, maximum=MAX_XFADE),
+        xfade_in_type=s.get("xfade_in_type", str, base.xfade_in_type, choices=TRANSITION_TYPES),
+        xfade_out_duration=s.get("xfade_out_duration", float, base.xfade_out_duration, minimum=0.0, maximum=MAX_XFADE),
+        xfade_out_type=s.get("xfade_out_type", str, base.xfade_out_type, choices=TRANSITION_TYPES),
     )
+
+
+def _parse_transitions(s: _Section) -> TransitionConfig:
+    for old in ("fade_out", "fade_in"):
+        if old in s.data:
+            s.raw(old)
+            s.problems.append(
+                f"transitions.{old}: replaced by xfade_out_duration/xfade_out_type (a cue into the filler) "
+                "and xfade_in_duration/xfade_in_type (into a cue); see docs/configuration.md"
+            )
+    cfg = _transition_keys(s, TransitionConfig())
     s.finish()
     return cfg
 
@@ -575,6 +603,7 @@ def _parse_cues(
     media_dir: Path,
     fps: float,
     midi: MidiConfig,
+    transitions: TransitionConfig,
     problems: list[str],
     warnings: list[str],
 ) -> list[Cue]:
@@ -651,6 +680,10 @@ def _parse_cues(
                 problems.append(f"{where}.osc: same trigger as cue {osc_triggers[key]}")
             osc_triggers[key] = cue_id
 
+        if "fade_in" in s.data:
+            s.raw("fade_in")
+            problems.append(f"{where}.fade_in: replaced by xfade_in_duration and xfade_in_type (fadeblack fades in from black)")
+
         mtc_start = None
         mtc_raw = s.raw("mtc_start")
         if mtc_raw is not None:
@@ -670,7 +703,7 @@ def _parse_cues(
                 osc=osc_trigger,
                 offset=s.get("offset", float, 0.0, minimum=-60.0, maximum=3600.0),
                 on_end=s.get("on_end", str, "filler", choices=ON_END),
-                fade_in=s.get("fade_in", float, 0.0, minimum=0.0, maximum=10.0),
+                transitions=_transition_keys(s, transitions),
                 mtc_start=mtc_start,
             )
         )

@@ -387,12 +387,17 @@ Bonjour, also allow mDNS (UDP 5353). Don't connect the laptop to the venue Wi-Fi
   settings*. Needs a restart. Registry (Admin, *community*):
   `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers` `HwSchMode` = 2 on, 1 off. The switch
   appears only with a supporting GPU and driver.
-- **GPU used by mpv** (laptops with two GPUs): Settings > System > Display > *Graphics* > add `mpv.exe`
-  (*Add desktop app*) > *Options* > *High performance* (or *Power saving*). The HDMI port may be wired to
-  either GPU, so test both and keep the one without dropped frames. Registry *(community)*:
-  `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`, value name = full path of `mpv.exe`,
-  `REG_SZ` data `GpuPreference=2;` (2 high performance, 1 power saving). Applies at the next start of
-  mpv.
+- **GPU used by the video** (laptops with two GPUs): Settings > System > Display > *Graphics* > add
+  the program (*Add desktop app*) > *Options* > *High performance* (or *Power saving*). With the
+  compositor engine (the default) the program is the bundle's `python\python.exe` (the compositor
+  runs in it); with the window engine it is `mpv.exe`. The HDMI port may be wired to either GPU, so
+  test both and keep the one without dropped frames. Registry *(community)*:
+  `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`, value name = full path of the program,
+  `REG_SZ` data `GpuPreference=2;` (2 high performance, 1 power saving). Applies at the next start.
+- **OpenGL 3.3** is required by the compositor: every current Intel, AMD and NVIDIA driver has it, the
+  *Microsoft Basic Display Adapter* (no vendor driver installed) does not - Aethra then runs with the
+  window engine and logs why. `aethra selftest --windows` shows the OpenGL renderer the compositor
+  got.
 - **Variable refresh rate** and **Optimizations for windowed games** (Settings > System > Display >
   Graphics) target games; their effect on mpv is untested. Leave the defaults unless a test shows a
   difference.

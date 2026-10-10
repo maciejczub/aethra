@@ -7,7 +7,7 @@ shows a filler. Whatever goes wrong, the stage output never shows a dialog, a
 frozen picture or the Windows desktop.
 
 ```
-REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ 3 × mpv ──▶ projector / LED wall
+REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ compositor: 3 × libmpv + OpenGL ──▶ projector / LED wall
 ```
 
 - **Instant, synchronous starts.** The next clip waits in a second player,
@@ -18,44 +18,58 @@ REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ 3
 - **Stays in sync.** While a clip plays, its position is compared with the
   trigger clock (or MIDI Time Code from REAPER) and gently corrected by tiny
   speed changes; a relocation is followed with one exact seek.
+- **Transitions**: cut, cross-fade, fade through black or white, or 25 blend
+  modes (multiply, screen, overlay, difference, hue, ...), into and out of
+  every song, whatever the other picture is. The out-transition starts before
+  the clip ends, so the filler has taken over at its last frame. Global
+  settings, overridable per song.
 - **Intro, filler between songs, outro**: solid colour, still image or video
-  loop each, with fades. The intro runs until the first song, the outro starts
-  after the last one, and both can be called at any time.
+  loop each. The intro runs until the first song, the outro starts after the
+  last one, and both can be called at any time.
 - **Fails safe.** A broken file never reaches the stage. A crashed or hung
-  player is replaced while the filler covers for it, and the song is rejoined at
-  the right position. A black window owned by the controller sits under
-  everything. If the controller itself crashes, the launcher restarts it and it
-  takes over the still-running players without a visible interruption.
+  player - or the whole compositor - is replaced while the filler (or black)
+  covers for it, and the song is rejoined at the right position. A black window
+  owned by the controller sits under everything. If the controller itself
+  crashes, the launcher restarts it and it takes over the still-running players
+  without a visible interruption.
 - **Manual control** with global hotkeys: GO, next/previous cue, blackout,
   filler.
 - **Event log** with microsecond timestamps and a post-show report.
 - **Test mode**: timecode, frame number, dropped frames and drift on screen.
 - One shortcut to start, optional autostart, no internet needed at run time.
 
-Built on [mpv](https://mpv.io/) (separate processes, hardware decoding,
-controlled over JSON IPC). Runtime dependencies: Python ≥ 3.11 and PyYAML; the
-Windows bundle includes both.
+Built on [mpv](https://mpv.io/): libmpv players composed on the GPU by a
+separate compositor process (OpenGL via [GLFW](https://www.glfw.org/)), hardware
+decoding, everything controlled over mpv's JSON IPC. A simpler engine with one
+mpv window per player (transitions through black) is the fallback. Runtime
+dependencies: Python ≥ 3.11, PyYAML and glfw; the Windows bundle includes them.
 
 > **Status: 0.1, not yet used on stage.** The core is covered by unit tests and
-> by integration tests against a real mpv on Linux. On a Windows 11 desktop
-> with mpv 0.41 the following was verified: named-pipe IPC (0.1 ms round
-> trip), playback locked to the system clock, window stacking and the black
-> backdrop (screenshots of the stage output), a killed player replaced with the
-> song rejoined in sync, and a killed controller taking over the running
-> players without interrupting the picture. Still to verify on the show laptop:
-> MIDI from a real device (WinMM), global hotkeys during a show, display
-> hot-plug and the codec choice — see [docs/testing.md](docs/testing.md).
+> by integration tests against a real mpv and the compositor on Linux. On a
+> Windows 11 desktop with mpv 0.41 the following was verified: named-pipe IPC
+> (0.1 ms round trip), playback locked to the system clock, window stacking and
+> the black backdrop (screenshots of the stage output), a killed player
+> replaced with the song rejoined in sync, a killed controller taking over the
+> running players without interrupting the picture, and the compositor on an
+> NVIDIA GPU: cross-fades and blend modes (screenshots), out-transitions ending
+> with the clip, the set played twice with no dropped frames and no drift, a
+> killed compositor back within a second, hardware decoding in every layer.
+> Still to verify on the show laptop: its GPU with the compositor, MIDI from a
+> real device (WinMM), global hotkeys during a show, display hot-plug and the
+> codec choice — see [docs/testing.md](docs/testing.md).
 
 ## Getting started on the show laptop
 
 1. Build the bundle (on any computer with Python and internet access):
 
    ```bash
-   python tools/build_windows_bundle.py --mpv-dir path/to/mpv --zip
+   python tools/build_windows_bundle.py --mpv-dir path/to/mpv --libmpv path/to/libmpv-2.dll --zip
    ```
 
-   This creates `dist/Aethra/` (and a zip): embeddable Python, PyYAML, Aethra,
-   mpv, the launcher and the docs. Windows mpv builds: <https://mpv.io/installation/>.
+   This creates `dist/Aethra/` (and a zip): embeddable Python, PyYAML, glfw,
+   Aethra, mpv with libmpv, the launcher and the docs. Windows mpv builds:
+   <https://mpv.io/installation/> (e.g. the shinchiro builds: `mpv-x86_64-*.7z`,
+   and `libmpv-2.dll` from `mpv-dev-x86_64-*.7z` of the same date).
 
 2. Copy the folder to the laptop, e.g. `C:\Aethra`, and put the clips into
    `media\`.

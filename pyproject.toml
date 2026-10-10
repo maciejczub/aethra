@@ -28,4 +28,5 @@ testpaths = ["tests"]
 addopts = "-ra"
 markers = [
     "mpv: needs a real mpv binary (run them with docker/compose.yaml)",
+    "compositor: needs libmpv, glfw and a display (run them with docker/compose.yaml)",
 ]

@@ -21,6 +21,7 @@ class FakeDeck:
         self.time_pos_t = 0.0
         self.paused = True
         self.black = 0.0
+        self.tint = "000000"
         self.speed = 1.0
         self.hwnd = None
         self.ipc = None
@@ -141,10 +142,14 @@ class FakeDeck:
         self.calls.append(("speed", speed))
         self.speed = speed
 
-    def set_black(self, alpha: float) -> None:
+    def set_black(self, alpha: float, color=None) -> None:
         self.black = alpha
+        if color is not None:
+            self.tint = color
 
-    def fade(self, end: float, duration: float, start=None):
+    def fade(self, end: float, duration: float, start=None, color=None):
+        if color is not None:
+            self.tint = color
         self.calls.append(("fade", end, duration))
 
         async def run():
@@ -200,6 +205,9 @@ class FakeStage:
         pass
 
     def close(self) -> None:
+        pass
+
+    async def quit(self) -> None:
         pass
 
 

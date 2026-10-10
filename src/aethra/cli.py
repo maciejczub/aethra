@@ -37,6 +37,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         return EXIT_CONFIG
     if args.test_mode:
         cfg = dataclasses.replace(cfg, test_mode=True)
+    if args.engine:
+        cfg = dataclasses.replace(cfg, stage=dataclasses.replace(cfg.stage, engine=args.engine))
     opts = RunOptions(
         instance=args.instance,
         fresh=args.fresh,
@@ -392,7 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--test-mode", action="store_true", help="show the timecode/frame overlay")
     p.add_argument("--fresh", action="store_true", help="do not reconnect to decks or state left by a previous run")
     p.add_argument("--instance", default="main", help=argparse.SUPPRESS)
-    p.add_argument("--vo", default=None, help="override mpv's video output (e.g. null for headless tests)")
+    p.add_argument("--engine", choices=("compositor", "windows"), default=None, help="override stage.engine")
+    p.add_argument("--vo", default=None, help="window engine: override mpv's video output (e.g. null for headless tests)")
     p.add_argument("--headless", action="store_true", help="no window management (tests)")
     p.add_argument("--no-hotkeys", action="store_true", help="do not register global hotkeys")
     p.add_argument("--exit-after", type=float, default=None, help=argparse.SUPPRESS)  # automated tests

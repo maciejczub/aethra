@@ -1,10 +1,12 @@
-"""A deck is one mpv process with its own full-screen window on the stage output.
+"""A deck is one player: a layer of the compositor (the default), or an mpv
+process with its own full-screen window on the stage output (window engine).
 
-The show uses three decks: ``F`` plays the filler, ``A`` and ``B`` take turns
-playing cues - while one is live, the other holds the next cue loaded and
-paused on its first frame, so a trigger only has to unpause it and raise its
-window. The deck tracks mpv's state from IPC events and reports changes to
-its listener (the show controller); all methods return immediately.
+The show uses three decks: ``F`` plays the background (intro, filler, outro),
+``A`` and ``B`` take turns playing cues - while one is live, the other holds
+the next cue loaded and paused on its first frame, so a trigger only has to
+unpause it and put it on stage. Either way the deck is driven over mpv's JSON
+IPC; it tracks mpv's state from IPC events and reports changes to its
+listener (the show controller); all methods return immediately.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from aethra.config import Config, Cue
 from aethra.eventlog import EventLog
 from aethra.ipc import MpvDisconnected, MpvError, MpvIpc
 from aethra.keys import parse_key_spec
-from aethra.mpvproc import MpvProcess, build_deck_args
+from aethra.mpvproc import MpvProcess, build_deck_args, build_layer_options
 from aethra.platform import IS_WINDOWS, ipc_address
 
 OVERLAY_FADE = 10
@@ -86,6 +88,7 @@ class DeckContext:
     session: str = ""
     vo_override: str | None = None
     keybinds: dict[str, str] = field(default_factory=dict)  # mpv key name -> command
+    compositor: Any = None  # CompositorStage: decks are its layers
 
 
 class Deck:
@@ -108,6 +111,7 @@ class Deck:
         self.ping_failures = 0
         self.restarts = 0
         self.black = 0.0
+        self.tint = "000000"  # colour of the fade overlay (window engine)
         self._token = 0
         self._current_entry: int | None = None
         self._fade_task: asyncio.Task[None] | None = None
@@ -169,7 +173,10 @@ class Deck:
             await ipc.close()
             return None
         self.ipc = ipc
-        self.proc = MpvProcess(pid=info["pid"]) if isinstance(info["pid"], int) else None
+        if self.ctx.compositor is not None:
+            self.proc = self.ctx.compositor.layer_process(self.name)
+        else:
+            self.proc = MpvProcess(pid=info["pid"]) if isinstance(info["pid"], int) else None
         self._current_entry = info["entry"] if isinstance(info["entry"], int) else None
         self.adopted = True
         await self._setup()
@@ -193,17 +200,21 @@ class Deck:
             log_file = self.ctx.log_dir / f"mpv-{self.ctx.session}-{self.name}.log"
         if not IS_WINDOWS:
             Path(self.address).unlink(missing_ok=True)
-        deck_args = build_deck_args(
-            self.ctx.mpv_path, cfg, self.name, self.address, log_file, self.ctx.supported_options, self.ctx.vo_override
-        )
-        if deck_args.dropped and self.restarts == 0:
-            self.log.debug("mpv_options", f"deck {self.name}: options not supported by this mpv: {', '.join(deck_args.dropped)}")
-        try:
-            self.proc = MpvProcess.spawn(deck_args.args, cfg.mpv.priority)
-        except OSError as exc:
-            self.state = DeckState.DOWN
-            self.log.error("deck_spawn_failed", f"deck {self.name}: cannot start mpv: {exc}", deck=self.name)
-            return False
+        if self.ctx.compositor is not None:
+            if not await self._create_layer(log_file):
+                return False
+        else:
+            deck_args = build_deck_args(
+                self.ctx.mpv_path, cfg, self.name, self.address, log_file, self.ctx.supported_options, self.ctx.vo_override
+            )
+            if deck_args.dropped and self.restarts == 0:
+                self.log.debug("mpv_options", f"deck {self.name}: options not supported by this mpv: {', '.join(deck_args.dropped)}")
+            try:
+                self.proc = MpvProcess.spawn(deck_args.args, cfg.mpv.priority)
+            except OSError as exc:
+                self.state = DeckState.DOWN
+                self.log.error("deck_spawn_failed", f"deck {self.name}: cannot start mpv: {exc}", deck=self.name)
+                return False
         self.adopted = False
         if IS_WINDOWS and not self.proc.in_job and self.restarts == 0:
             self.log.warn("deck_job", f"deck {self.name}: could not put mpv into the crash job; a crash may freeze the picture until the watchdog acts")
@@ -220,7 +231,20 @@ class Deck:
             self.state = DeckState.DOWN
             return False
         self.state = DeckState.IDLE
-        self.log.info("deck_up", f"deck {self.name}: mpv running (pid {self.proc.pid})", deck=self.name, pid=self.proc.pid)
+        what = "compositor layer" if self.ctx.compositor is not None else "mpv"
+        self.log.info("deck_up", f"deck {self.name}: {what} running (pid {self.proc.pid})", deck=self.name, pid=self.proc.pid)
+        return True
+
+    async def _create_layer(self, log_file: Path | None) -> bool:
+        layer = build_layer_options(self.ctx.config, self.name, self.address, log_file, self.ctx.supported_options)
+        if layer.dropped and self.restarts == 0:
+            self.log.debug("mpv_options", f"deck {self.name}: options not supported by this mpv: {', '.join(layer.dropped)}")
+        try:
+            self.proc = await self.ctx.compositor.create_layer(self.name, layer.options)
+        except Exception as exc:  # CompositorError: the compositor is down or refused
+            self.state = DeckState.DOWN
+            self.log.error("deck_spawn_failed", f"deck {self.name}: cannot create the compositor layer: {exc}", deck=self.name)
+            return False
         return True
 
     async def _setup(self) -> None:
@@ -235,7 +259,7 @@ class Deck:
         self.set_test_mode(self._test_mode)
 
     async def _find_window(self) -> int | None:
-        if not IS_WINDOWS or self.ipc is None:
+        if not IS_WINDOWS or self.ipc is None or self.ctx.compositor is not None:
             return None
         from aethra import winapi
 
@@ -436,12 +460,12 @@ class Deck:
 
     # -- visuals -----------------------------------------------------------------
 
-    def _black_ass(self, alpha: float) -> str:
+    def _black_ass(self, alpha: float, color: str = "000000") -> str:
         a = max(0, min(255, round((1.0 - alpha) * 255)))
         w, h = self.ctx.config.stage.width, self.ctx.config.stage.height
         return (
-            "{\\an7\\pos(0,0)\\bord0\\shad0\\blur0\\1c&H000000&\\1a&H%02X&\\p1}m %d %d l %d %d %d %d %d %d{\\p0}"
-            % (a, -w, -h, 2 * w, -h, 2 * w, 2 * h, -w, 2 * h)
+            "{\\an7\\pos(0,0)\\bord0\\shad0\\blur0\\1c&H%s&\\1a&H%02X&\\p1}m %d %d l %d %d %d %d %d %d{\\p0}"
+            % (color, a, -w, -h, 2 * w, -h, 2 * w, 2 * h, -w, 2 * h)
         )
 
     def _overlay(self, overlay_id: int, data: str | None, z: int) -> None:
@@ -456,14 +480,19 @@ class Deck:
     def _apply_black(self, alpha: float) -> None:
         alpha = max(0.0, min(1.0, alpha))
         self.black = alpha
-        self._overlay(OVERLAY_FADE, self._black_ass(alpha) if alpha > 0.0005 else None, 10)
+        self._overlay(OVERLAY_FADE, self._black_ass(alpha, self.tint) if alpha > 0.0005 else None, 10)
 
-    def set_black(self, alpha: float) -> None:
+    def set_black(self, alpha: float, color: str | None = None) -> None:
+        """Cover the picture with black (or ``color``, ``RRGGBB``) at this strength."""
         self._cancel_fade()
+        if color is not None:
+            self.tint = color
         self._apply_black(alpha)
 
-    def fade(self, end: float, duration: float, start: float | None = None) -> asyncio.Task[None]:
+    def fade(self, end: float, duration: float, start: float | None = None, color: str | None = None) -> asyncio.Task[None]:
         self._cancel_fade()
+        if color is not None:
+            self.tint = color
         task = asyncio.create_task(self._fade(self.black if start is None else start, end, duration))
         self._fade_task = task
         return task

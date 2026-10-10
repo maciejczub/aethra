@@ -63,6 +63,18 @@ square pixels. Encode every clip of the set the same way.
 
 5. Put the result in `show.yaml` (`mpv.hwdec`) and in your notes.
 
+### With the compositor engine
+
+The compositor's players render through OpenGL, which narrows mpv's choice of
+hardware decoders: `nvdec` on NVIDIA (no copy), `dxva2` through the
+`WGL_NV_DX_interop` extension on most Intel and AMD drivers; `d3d11va` without
+copying needs Direct3D and is not available there. `aethra bench` measures
+mpv's own window, so after choosing the codec check what the layers use: the
+players' logs (`logs\mpv-*-A.log`, line `Using hardware decoding (...)`), or
+the test overlay. If a layer falls back to software decoding and the CPU load
+is too high, try `hwdec: auto-copy` (or `d3d11va-copy`): the GPU decodes and
+the frames are copied back, which works with any rendering API.
+
 ## Encoding the set
 
 H.264 example (25 fps, 2 s GOP, high quality, fast start):

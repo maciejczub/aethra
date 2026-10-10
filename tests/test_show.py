@@ -9,7 +9,8 @@ from aethra.show import Mode, ShowController, StateStore
 
 from fakes import FakeDeck, FakeStage, quiet_log
 
-FAST = {"transitions": {"fade_out": 0.02, "fade_in": 0.02}}
+# Window engine: a cue leaves through black, 0.02 s out and 0.02 s in.
+FAST = {"transitions": {"xfade_out_duration": 0.04}}
 
 
 def build(make_config, data=None, stage=None, state_store=None, mtc=None):
@@ -206,7 +207,6 @@ def test_error_during_playback_brings_in_the_filler(make_config):
         decks["A"].playback_error()
         await asyncio.sleep(0.1)
         assert ctl.mode == Mode.FILLER and ctl.visible == "F"
-        assert ("fade", 1.0, 0.02) not in decks["A"].calls  # nothing to fade: the deck is black already
         assert decks["F"].calls[-2:] == [("play",), ("fade", 0.0, 0.02)]
         assert ("unload",) in decks["A"].calls
         await ctl.shutdown()
@@ -233,7 +233,8 @@ def test_on_end_hold_and_black(make_config):
         decks["B"].reach_eof()
         await asyncio.sleep(0.05)
         assert ctl.mode == Mode.BLACK
-        assert ("fade", 1.0, 0.02) in decks["B"].calls
+        assert ("fade", 1.0, 0.04) in decks["B"].calls  # to black: the whole out-transition
+        assert ctl.visible is None
         await ctl.shutdown()
 
     run(scenario())
@@ -241,7 +242,7 @@ def test_on_end_hold_and_black(make_config):
 
 def test_trigger_during_fade_out_wins(make_config):
     async def scenario():
-        ctl, decks = build(make_config, {"transitions": {"fade_out": 0.5, "fade_in": 0.5}})
+        ctl, decks = build(make_config, {"transitions": {"xfade_out_duration": 1.0}})
         await started(ctl, decks)
         await preload_ready(decks)
         ctl.on_midi(bytes([0x9F, 36, 100]), now())
@@ -545,7 +546,7 @@ def test_restore_time_survives_wall_clock_jumps():
 
 def test_failed_trigger_during_fade_out_still_brings_the_filler(make_config):
     async def scenario():
-        ctl, decks = build(make_config, {"transitions": {"fade_out": 0.3, "fade_in": 0.05}})
+        ctl, decks = build(make_config, {"transitions": {"xfade_out_duration": 0.35}})
         await started(ctl, decks)
         await preload_ready(decks)
         ctl.on_midi(bytes([0x9F, 36, 100]), now())

@@ -71,21 +71,21 @@ RECENT_OPTIONS = frozenset({
 })
 
 
+# Options of an mpv window; a compositor layer has no window of its own.
+WINDOW_OPTIONS = frozenset({
+    "force-window", "fullscreen", "border", "title", "screen", "fs-screen", "screen-name", "fs-screen-name",
+    "window-dragging", "taskbar-progress", "snap-window", "auto-window-resize", "focus-on", "input-vo-keyboard",
+    "cursor-autohide", "stop-screensaver", "media-controls", "background-color", "vo",
+})
+
+
 @dataclass
 class DeckArgs:
     args: list[str]
     dropped: list[str]
 
 
-def build_deck_args(
-    mpv: str,
-    cfg: Config,
-    deck: str,
-    ipc_address: str,
-    log_file: Path | None,
-    supported: frozenset[str] | None,
-    vo_override: str | None = None,
-) -> DeckArgs:
+def _deck_options(cfg: Config, deck: str, ipc_address: str, log_file: Path | None) -> list[tuple[str, str]]:
     stage = cfg.stage
     opts: list[tuple[str, str]] = [
         ("idle", "yes"),
@@ -141,12 +141,25 @@ def build_deck_args(
         opts += [("screen-name", stage.screen_name), ("fs-screen-name", stage.screen_name)]
     elif stage.screen is not None:
         opts += [("screen", str(stage.screen)), ("fs-screen", str(stage.screen))]
+    if log_file is not None:
+        opts.append(("log-file", str(log_file)))
+    return opts
+
+
+def build_deck_args(
+    mpv: str,
+    cfg: Config,
+    deck: str,
+    ipc_address: str,
+    log_file: Path | None,
+    supported: frozenset[str] | None,
+    vo_override: str | None = None,
+) -> DeckArgs:
+    """Command line of a deck that is an mpv process with its own window."""
+    opts = _deck_options(cfg, deck, ipc_address, log_file)
     vo = vo_override or cfg.mpv.vo
     if vo:
         opts.append(("vo", vo))
-    if log_file is not None:
-        opts.append(("log-file", str(log_file)))
-
     args = [mpv, "--no-config"]
     dropped: list[str] = []
     for name, value in opts:
@@ -158,6 +171,48 @@ def build_deck_args(
     return DeckArgs(args, dropped)
 
 
+@dataclass
+class LayerOptions:
+    options: dict[str, str]
+    dropped: list[str]
+
+
+def build_layer_options(
+    cfg: Config,
+    deck: str,
+    ipc_address: str,
+    log_file: Path | None,
+    supported: frozenset[str] | None,
+) -> LayerOptions:
+    """Options of a deck that is a compositor layer (libmpv rendering into a texture).
+
+    The compositor also skips any option its libmpv does not know, so a libmpv
+    that differs from the mpv executable cannot stop a layer from starting.
+    """
+    opts = [(name, value) for name, value in _deck_options(cfg, deck, ipc_address, log_file) if name not in WINDOW_OPTIONS]
+    # An idle layer renders black (instead of keeping its last frame).
+    opts += [("force-window", "yes"), ("vo", "libmpv"), ("video-timing-offset", "0")]
+    # mpv's single-pass renderer: clips are made at the stage size, so the
+    # multi-pass path (lookup-table scalers, intermediate frame buffers) only
+    # costs GPU time - and in libmpv it sometimes renders a layer black for good
+    # (mpv reads uninitialised memory there; seen with mpv 0.40).
+    opts += [("gpu-dumb-mode", "yes")]
+    for arg in cfg.mpv.extra_args:
+        if arg.startswith("--") and "=" in arg:
+            name, value = arg[2:].split("=", 1)
+            opts.append((name, value))
+    result: dict[str, str] = {}
+    dropped: list[str] = []
+    for name, value in opts:
+        if name not in ("vo", "video-timing-offset", "force-window", "gpu-dumb-mode") and (
+            (name not in supported) if supported is not None else (name in RECENT_OPTIONS)
+        ):
+            dropped.append(name)
+            continue
+        result[name] = value
+    return LayerOptions(result, dropped)
+
+
 class MpvProcess:
     """An mpv process we started (``popen``) or adopted after a restart (``pid``)."""
 
@@ -167,12 +222,21 @@ class MpvProcess:
         self.in_job = False
 
     @classmethod
-    def spawn(cls, args: list[str], priority: str = "above_normal") -> "MpvProcess":
+    def spawn(cls, args: list[str], priority: str = "above_normal", output: Path | None = None, env: dict[str, str] | None = None) -> "MpvProcess":
+        """Start a player (or the compositor) without a console window; its
+        output goes to ``output`` (appended) or nowhere."""
+        sink = subprocess.DEVNULL
+        if output is not None:
+            try:
+                sink = open(output, "ab")  # noqa: SIM115 - handed to the child process
+            except OSError:
+                sink = subprocess.DEVNULL
         kwargs: dict = {
             "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
+            "stdout": sink,
+            "stderr": sink,
             "close_fds": True,
+            "env": env,
         }
         if IS_WINDOWS:
             flags = subprocess.CREATE_NO_WINDOW
@@ -185,7 +249,11 @@ class MpvProcess:
         else:
             # Own session: Ctrl+C in the operator's terminal must not reach mpv.
             kwargs["start_new_session"] = True
-        proc = cls(subprocess.Popen(args, **kwargs))
+        try:
+            proc = cls(subprocess.Popen(args, **kwargs))
+        finally:
+            if sink is not subprocess.DEVNULL:
+                sink.close()  # the child has its own handle
         if IS_WINDOWS:
             from aethra import winapi
 

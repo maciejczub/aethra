@@ -8,6 +8,7 @@ import platform as pyplatform
 import signal
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from aethra import __version__
 from aethra.clock import WallClock
@@ -19,9 +20,19 @@ from aethra.midi import MidiInput
 from aethra.mpvproc import mpv_version, resolve_mpv, supported_options
 from aethra.mtc import MtcDecoder
 from aethra.osc import start_osc_server
-from aethra.platform import IS_WINDOWS, ProcessSetup, SingleInstance, on_console_close, runtime_dir
+from aethra.picture import CompositorPicture, Picture
+from aethra.platform import IS_WINDOWS, ProcessSetup, SingleInstance, ipc_address, on_console_close, runtime_dir
 from aethra.show import ShowController, StateStore
-from aethra.stage import NullStage, OntopStage, Stage, Win32Stage, choose_monitor, list_monitors
+from aethra.stage import (
+    CompositorError,
+    CompositorStage,
+    NullStage,
+    OntopStage,
+    Stage,
+    Win32Stage,
+    choose_monitor,
+    list_monitors,
+)
 
 EXIT_OK = 0
 EXIT_CRASH = 1
@@ -85,6 +96,8 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
     supported = supported_options(mpv)
 
     stage: Stage
+    compositor: CompositorStage | None = None
+    rect = (0, 0, cfg.stage.width, cfg.stage.height)
     if opts.headless:
         stage = NullStage()
     elif IS_WINDOWS:
@@ -106,9 +119,15 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
             # Tell mpv explicitly which screen we picked, so mpv and the backdrop agree.
             cfg = dataclasses.replace(cfg, stage=dataclasses.replace(cfg.stage, screen=chosen.index))
             log.info("monitor", f"stage output: {chosen}")
+        rect = (chosen.left, chosen.top, chosen.width, chosen.height)
         stage = Win32Stage(cfg.stage, log)
     else:
         stage = OntopStage()
+    if not opts.headless and cfg.stage.engine == "compositor":
+        compositor = await _start_compositor(cfg, opts, log, mpv, rect)
+        if compositor is not None:
+            stage = compositor
+    log.info("engine", "compositor: one window, decks are layers" if compositor is not None else "window engine: one mpv window per deck")
 
     ctx = DeckContext(
         config=cfg,
@@ -120,16 +139,24 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
         session=log.session,
         vo_override=opts.vo,
         keybinds=keybinds_for(cfg),
+        compositor=compositor,
     )
     mtc = MtcDecoder(cfg.sync.mtc.timeout) if cfg.midi.enabled else None
     # Decks and controller refer to each other: create the decks first, then
     # make the controller their listener.
     decks = {name: Deck(name, role, ctx, listener=None) for name, role in (("F", "filler"), ("A", "cue"), ("B", "cue"))}  # type: ignore[arg-type]
-    controller = ShowController(cfg, log, decks, stage, mtc, StateStore(runtime_dir() / f"{opts.instance}-state.json"), wall)
+    picture: Picture | None = CompositorPicture(compositor) if compositor is not None else None
+    controller = ShowController(
+        cfg, log, decks, stage, mtc, StateStore(runtime_dir() / f"{opts.instance}-state.json"), wall, picture=picture
+    )
     for deck in decks.values():
         deck.listener = controller
-    if isinstance(stage, Win32Stage):
-        stage.on_display_change = lambda: _display_changed(stage, controller, log)
+    windows = compositor.backdrop if compositor is not None else stage
+    if isinstance(windows, Win32Stage):
+        windows.on_display_change = lambda: _display_changed(windows, controller, log)
+    if compositor is not None:
+        compositor.on_key = controller.stage_key
+        compositor.on_restart = controller.compositor_restarted
 
     def post(command: str, source: str) -> None:
         loop.call_soon_threadsafe(controller.command, command, source)
@@ -212,6 +239,39 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
     return exit_code
 
 
+async def _start_compositor(
+    cfg: Config, opts: RunOptions, log: EventLog, mpv: str, rect: tuple[int, int, int, int]
+) -> CompositorStage | None:
+    """Start (or reconnect to) the compositor; None if it cannot run here, in
+    which case the show runs with the window engine."""
+    libmpv = cfg.mpv.libmpv
+    if libmpv is None:
+        # The bundle keeps libmpv next to mpv.exe.
+        for name in ("libmpv-2.dll", "mpv-2.dll") if IS_WINDOWS else ():
+            candidate = Path(mpv).parent / name
+            if candidate.is_file():
+                libmpv = str(candidate)
+                break
+    log_file = None
+    if cfg.logging.dir is not None:
+        try:
+            cfg.logging.dir.mkdir(parents=True, exist_ok=True)
+            log_file = cfg.logging.dir / f"compositor-{log.session}.log"
+        except OSError:
+            log_file = None
+    compositor = CompositorStage(
+        cfg.stage, log, ipc_address(opts.instance, "compositor"), rect,
+        libmpv=libmpv, log_file=log_file, backdrop=Win32Stage(cfg.stage, log) if IS_WINDOWS else None,
+        startup_timeout=cfg.mpv.startup_timeout + 5.0, priority=cfg.mpv.priority,
+    )
+    try:
+        await compositor.open()
+    except CompositorError as exc:
+        log.error("compositor", f"{exc}; using the window engine instead (transitions dip through black)")
+        return None
+    return compositor
+
+
 def _display_changed(stage: Win32Stage, controller: ShowController, log: EventLog) -> None:
     log.warn("display_change", "display configuration changed")
     loop = asyncio.get_running_loop()
@@ -221,7 +281,7 @@ def _display_changed(stage: Win32Stage, controller: ShowController, log: EventLo
         try:
             if stage.reposition():
                 log.info("monitor", f"windows placed on the stage output: {stage.monitor}")
-                controller._apply_stack()
+                controller.picture.refresh()
                 return
             if attempt == 0:
                 log.error("monitor", "stage screen not found after the display change; waiting for it")

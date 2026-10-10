@@ -1,9 +1,13 @@
 """The show controller: decides what is on stage.
 
 Decks: ``F`` (the background: intro, filler or outro) and two cue decks, ``A``
-and ``B``. While a cue plays on
-one cue deck, the other holds the next cue paused on its first frame. A
-trigger then only needs to unpause that deck and raise its window.
+and ``B``. While a cue plays on one cue deck, the other holds the next cue
+paused on its first frame. A trigger then only needs to unpause that deck and
+put it on stage (:mod:`aethra.picture`), with the cue's in-transition. The
+cue's out-transition starts ``xfade_out_duration`` before the clip ends, so the
+background (or black) has taken over when the last frame is reached. A deck
+that is still part of the picture (fading out) is never reloaded: it is
+retired when its transition is over.
 
 Timing model: a trigger at host time ``t0`` means "clip position
 ``clip_at_t0`` belongs to ``t0``", where ``clip_at_t0 = cue.offset +
@@ -33,9 +37,11 @@ from aethra.clock import WallClock, now, sleep_until
 from aethra.config import Config, Cue, FillerConfig
 from aethra.deck import Deck, DeckState, Load
 from aethra.eventlog import EventLog
+from aethra.keys import KeySpecError, parse_key_spec
 from aethra.mtc import MtcDecoder, format_seconds
 from aethra.osc import OscMessage
-from aethra.stage import BACKDROP, Stage
+from aethra.picture import Picture, WindowPicture
+from aethra.stage import Stage
 from aethra.sync import DriftCorrector, Seek, SetSpeed
 
 STAT_PROPS = ("frame-drop-count", "decoder-frame-drop-count", "vo-delayed-frame-count", "mistimed-frame-count")
@@ -66,6 +72,9 @@ class Live:
     went_live_at: float
     corrector: DriftCorrector | None = None
     ended: bool = False
+    load: Load | None = None
+    leaving: bool = False  # its out-transition has started
+    out_task: asyncio.Task[None] | None = None
 
 
 @dataclass(eq=False)
@@ -126,6 +135,7 @@ class ShowController:
         mtc: MtcDecoder | None = None,
         state_store: StateStore | None = None,
         wall: WallClock | None = None,
+        picture: Picture | None = None,
     ) -> None:
         self.cfg = cfg
         self.log = log
@@ -133,13 +143,13 @@ class ShowController:
         self.filler_deck = decks["F"]
         self.cue_decks = [decks["A"], decks["B"]]
         self.stage = stage
+        self.picture: Picture = picture or WindowPicture(stage, decks, "F", ["A", "B"])
         self.mtc = mtc
         self.state_store = state_store
         self.wall = wall or WallClock()
         self.mode = Mode.STARTING
         self.live: Live | None = None
         self.pending: PendingStart | None = None
-        self.visible: str | None = None
         self.blackout = False
         self.test_mode = cfg.test_mode
         self.selected = 0
@@ -156,7 +166,18 @@ class ShowController:
         self._quit_armed_at: float | None = None
         self._mtc_was_running = False
         self._last_trigger: tuple[str, str, float] | None = None
-        self._blackout_osd: dict[str, bool] = {}
+        # Cues that left the stage but whose deck may still be seen (fading out).
+        self._retiring: list[Live] = []
+        # A cue whose deck died while no other deck could take over (cue, t0, clip_at_t0).
+        self._lost: tuple[Cue, float, float] | None = None
+        self._stage_keys: dict[str, str] = {}
+        if cfg.keyboard.stage_window:
+            for command, specs in cfg.keyboard.keys.items():
+                for spec in specs:
+                    try:
+                        self._stage_keys[parse_key_spec(spec).canonical] = command
+                    except KeySpecError:
+                        pass
         # What the background deck F holds (or is loading): intro, filler or outro.
         self.background_kind = "filler"
         self._notes = {c.midi_note: c for c in cfg.cues if c.midi_note is not None}
@@ -168,6 +189,11 @@ class ShowController:
     @property
     def cues(self) -> tuple[Cue, ...]:
         return self.cfg.cues
+
+    @property
+    def visible(self) -> str | None:
+        """The deck on stage (or coming on stage); None: black."""
+        return self.picture.visible
 
     @property
     def selected_cue(self) -> Cue | None:
@@ -249,7 +275,7 @@ class ShowController:
             if deck.up:
                 self.stage.register(deck)
         self.stage.start()
-        self._apply_stack()
+        self.picture.set_blackout(self.blackout)
         for deck in all_decks:
             if deck.up and deck.adopted:
                 deck.reveal()
@@ -273,11 +299,11 @@ class ShowController:
             self.mode = self._mode_for(self.background_kind)
             background = self.filler_deck
             if background.state == DeckState.PLAYING and background.adopted:
-                self._show_background_now(0.0)  # it was on stage already: no new fade
+                self._cut_to_background()  # it was on stage already: no new fade
             elif background.state in (DeckState.PLAYING, DeckState.READY):
-                self._show_background_now(fade_in=self.cfg.transitions.fade_in)
+                self._fade_in_background()
             self._resume_after_restart(state)
-        self._apply_stack()
+        self.picture.refresh()
         self._preload_next()
         if self.test_mode:
             self.set_test_mode(True)
@@ -331,18 +357,16 @@ class ShowController:
         if ended or info.get("eof"):
             if not (info.get("eof") and saved_mode in (Mode.HOLD.value, Mode.BLACK.value)):
                 return False
-            deck.assume(str(cue.file), cue, playing=False, ended=True)
-            self.live = Live(cue, deck, t0, clip_at_t0, "restored", now(), None, ended=True)
+            load = deck.assume(str(cue.file), cue, playing=False, ended=True)
+            self.live = Live(cue, deck, t0, clip_at_t0, "restored", now(), None, ended=True, load=load)
             self.mode = Mode(saved_mode)
-            if self.mode == Mode.BLACK:
-                deck.set_black(1.0)  # the old controller's overlay went with it
         elif info.get("pause"):
             return False
         else:
-            deck.assume(str(cue.file), cue, playing=True)
-            self.live = Live(cue, deck, t0, clip_at_t0, "restored", now(), self._new_corrector(cue, t0, clip_at_t0))
+            load = deck.assume(str(cue.file), cue, playing=True)
+            self.live = Live(cue, deck, t0, clip_at_t0, "restored", now(), self._new_corrector(cue, t0, clip_at_t0), load=load)
             self.mode = Mode.CUE
-        self.visible = deck.name
+        self.picture.cut(None if self.mode == Mode.BLACK else deck.name)
         self.log.info("cue_restored", f"cue {cue.label} is still on stage (deck {deck.name}, {self.mode.value}); continuing", cue=cue.id)
         return True
 
@@ -382,7 +406,7 @@ class ShowController:
         media, loop = self._background_media(kind, force_color)
         if paused is None:
             # The background only plays while it is on stage.
-            paused = self.visible != deck.name and not (self.live is None and self.mode in (Mode.STARTING, *BACKGROUND_MODES))
+            paused = not self.picture.busy(deck.name) and not (self.live is None and self.mode in (Mode.STARTING, *BACKGROUND_MODES))
         return deck.load(media, start=0.0, paused=paused, loop=loop)
 
     async def _background_ready(self, timeout: float = 5.0) -> bool:
@@ -403,29 +427,6 @@ class ShowController:
             else:
                 await asyncio.sleep(0.01)  # a fallback load replaced it
         return False
-
-    # ------------------------------------------------------------------ stacking
-
-    def _stack_order(self) -> list[str]:
-        backdrop_on_top = (self.blackout or self.visible is None) and self.stage.has_backdrop
-        order: list[str] = [BACKDROP] if backdrop_on_top else []
-        if self.visible is not None:
-            order.append(self.visible)
-        if self.filler_deck.name != self.visible:
-            order.append(self.filler_deck.name)
-        if not backdrop_on_top:
-            order.append(BACKDROP)
-        order.extend(d.name for d in self.cue_decks if d.name != self.visible)
-        return order
-
-    def _apply_stack(self) -> None:
-        self.stage.apply(self._stack_order())
-        if not self.stage.has_backdrop:
-            for deck in self.decks.values():
-                want = self.blackout and deck.name == self.visible
-                if self._blackout_osd.get(deck.name, False) != want and deck.up:
-                    deck.set_blackout(want)
-                    self._blackout_osd[deck.name] = want
 
     # ------------------------------------------------------------------ triggers
 
@@ -450,7 +451,7 @@ class ShowController:
                 self._arm(self.pending)
             # else: still loading - deck_ready() arms it
         else:
-            deck = self._free_cue_deck()
+            deck = self._free_cue_deck(steal=True)
             if deck is None:
                 self.log.error("no_deck", f"no cue deck is available for {cue.label}; cue skipped", cue=cue.id)
                 return
@@ -472,20 +473,34 @@ class ShowController:
                 return deck
         return None
 
-    def _free_cue_deck(self) -> Deck | None:
-        candidates = [
-            d
-            for d in self.cue_decks
-            if d.up
-            and (self.live is None or self.live.deck is not d)
-            and (self.pending is None or self.pending.deck is not d)
-        ]
-        if not candidates:
+    def _free_cue_deck(self, steal: bool = False) -> Deck | None:
+        """A cue deck that is neither live, nor starting, nor part of the picture.
+
+        ``steal``: when both cue decks are on stage (a cross-fade between two
+        cues), end the transition now to free the deck that is leaving.
+        """
+        def candidates() -> list[Deck]:
+            return [
+                d
+                for d in self.cue_decks
+                if d.up
+                and (self.live is None or self.live.deck is not d)
+                and (self.pending is None or self.pending.deck is not d)
+                and not self.picture.busy(d.name)
+            ]
+
+        found = candidates()
+        if not found and steal and self._retiring:
+            self.log.info("transition_cut", "both cue decks are on stage: ending the running transition now")
+            self.picture.finish()
+            self._retire_unused()
+            found = candidates()
+        if not found:
             return None
-        # Prefer hidden decks, and among those an empty one over one that holds a preload.
+        # Prefer an empty deck over one that holds a preload.
         rank = {DeckState.IDLE: 0, DeckState.FAILED: 0, DeckState.ENDED: 1, DeckState.READY: 2, DeckState.LOADING: 3}
-        candidates.sort(key=lambda d: (d.name == self.visible, rank.get(d.state, 4)))
-        return candidates[0]
+        found.sort(key=lambda d: rank.get(d.state, 4))
+        return found[0]
 
     def _cold_start(self, deck: Deck, cue: Cue, t0: float, clip_at_t0: float, source: str, resume: bool = False) -> None:
         target = clip_at_t0 + (now() - t0) + self._load_lead
@@ -543,36 +558,32 @@ class ShowController:
             self.log.error("start_failed", f"cue {cue.id}: deck {deck.name} is not ready ({deck.state.value})", cue=cue.id)
             return
         self._cancel_transition()
-        if cue.fade_in > 0:
-            deck.set_black(1.0)
-        elif deck.black > 0:
-            deck.set_black(0.0)
         deck.play()
         t_live = now()
+        # A cue that rejoins after a crash comes back at once.
+        kind, duration = ("cut", 0.0) if pending.resume else (cue.transitions.xfade_in_type, cue.transitions.xfade_in_duration)
+        done = self.picture.transition(deck.name, kind, duration, start=t_live)
         old_live = self.live
-        was_visible = self.visible
-        self.visible = deck.name
-        self._apply_stack()
-        if cue.fade_in > 0:
-            deck.fade(0.0, cue.fade_in)
-        self.live = Live(cue, deck, pending.t0, pending.clip_at_t0, pending.source, t_live, self._new_corrector(cue, pending.t0, pending.clip_at_t0))
+        self.live = Live(
+            cue, deck, pending.t0, pending.clip_at_t0, pending.source, t_live,
+            self._new_corrector(cue, pending.t0, pending.clip_at_t0), load=pending.load,
+        )
         self.mode = Mode.CUE
+        self._lost = None
         self.log.info(
             "cue_live",
-            f"cue {cue.label} on deck {deck.name} ({(t_live - pending.t0) * 1000:.1f} ms after trigger)",
+            f"cue {cue.label} on deck {deck.name} ({(t_live - pending.t0) * 1000:.1f} ms after trigger)"
+            + (f", {kind} {duration:g} s" if duration > 0 and kind != "cut" else ""),
             t=t_live, cue=cue.id, deck=deck.name, source=pending.source,
             trigger_to_play_ms=round((t_live - pending.t0) * 1000, 2), position=round(pending.position, 3),
-            late_ms=round(late * 1000, 1), resume=pending.resume,
+            late_ms=round(late * 1000, 1), resume=pending.resume, transition=kind, transition_s=duration,
         )
-        if old_live is not None and old_live.deck is not deck:
-            self._retire(old_live)
-        if was_visible == self.filler_deck.name:
-            self.filler_deck.pause()
-        # Prepare, out of sight, the background that comes after this cue.
-        following = self._after(cue)
-        if following != self.background_kind or self.filler_deck.state == DeckState.FAILED:
-            self._load_background(following, paused=True)
-        self._preload_next()
+        if old_live is not None and old_live.deck is not deck and old_live not in self._retiring:
+            self._retiring.append(old_live)
+        # What the transition still shows (the previous cue, the background) is
+        # released when it is over; whatever is free already, right now.
+        done.add_done_callback(lambda _f: self._settle())
+        self._settle()
         self._save_state()
 
     def _new_corrector(self, cue: Cue, t0: float, clip_at_t0: float) -> DriftCorrector | None:
@@ -586,6 +597,36 @@ class ShowController:
             anchor = snap.position if snap.running else None
         corrector.start(now(), t0, clip_at_t0, anchor)
         return corrector
+
+    def _retire_unused(self) -> None:
+        """Unload the decks of cues that left the stage, once they cannot be seen."""
+        for live in list(self._retiring):
+            if self.live is live:
+                self._retiring.remove(live)
+            elif not self.picture.busy(live.deck.name):
+                self._retiring.remove(live)
+                still_loaded = live.load is None or live.deck.load_ is live.load
+                if still_loaded and (self.pending is None or self.pending.deck is not live.deck):
+                    self._retire(live)
+
+    def _settle(self) -> None:
+        """Free what the picture no longer shows: retire the decks of cues that
+        went off stage, pause the background off stage and prepare the one that
+        follows the live cue, preload the next cue."""
+        if self.stopping:
+            return
+        self._retire_unused()
+        background = self.filler_deck
+        transition_running = self._transition is not None and not self._transition.done()
+        if not self.picture.busy(background.name) and not transition_running and background.up:
+            if not background.paused and background.state in (DeckState.PLAYING, DeckState.READY):
+                background.pause()
+            if self.live is not None:
+                # Prepare, out of sight, the background that comes after this cue.
+                following = self._after(self.live.cue)
+                if following != self.background_kind or background.state in (DeckState.FAILED, DeckState.IDLE):
+                    self._load_background(following, paused=True)
+        self._preload_next()
 
     def _retire(self, live: Live) -> None:
         deck = live.deck
@@ -646,23 +687,56 @@ class ShowController:
 
     # ------------------------------------------------------------------ endings, filler, blackout
 
+    def _schedule_out(self, live: Live, position: float, t: float) -> None:
+        """Start the cue's out-transition so that it is over when the clip ends."""
+        cue = live.cue
+        out = cue.transitions.xfade_out_duration
+        duration = live.deck.duration
+        if cue.on_end == "hold" or out <= 0 or not duration:
+            return
+        until = (duration - out) - position  # clip seconds before the transition starts
+        if until > 1.0:
+            return
+        start = t + max(0.0, until) / max(live.deck.speed, 0.5)
+        live.out_task = self._spawn_task(self._out_at(live, start), f"out-{cue.id}")
+
+    async def _out_at(self, live: Live, start: float) -> None:
+        await sleep_until(start)
+        if self.live is live and not live.leaving and not live.ended:
+            self._end_cue(live, "end of clip", start=start)
+
+    def _end_cue(self, live: Live, reason: str, start: float | None = None) -> None:
+        """The cue leaves the stage the way it is configured to (``on_end``)."""
+        if live.leaving or self.live is not live:
+            return
+        if live.cue.on_end == "filler":
+            self.to_background(self._after(live.cue), reason, start=start)
+        elif live.cue.on_end == "black":
+            live.leaving = True
+            self._cancel_transition()
+            t = live.cue.transitions
+            done = self.picture.transition(None, t.xfade_out_type, t.xfade_out_duration, start=start)
+            done.add_done_callback(lambda _f: self._settle())
+            self.log.info("cue_out", f"cue {live.cue.id}: to black ({reason})", cue=live.cue.id)
+
     def _cue_ended(self, live: Live) -> None:
         live.ended = True
         self.log.info("cue_end", f"cue {live.cue.id} reached its end ({live.cue.on_end})", cue=live.cue.id)
-        if live.cue.on_end == "filler":
-            self.to_background(self._after(live.cue), "end of clip")
-        elif live.cue.on_end == "hold":
+        if live.cue.on_end == "hold":
             self.mode = Mode.HOLD
         else:
-            live.deck.fade(1.0, self.cfg.transitions.fade_out)
-            self.mode = Mode.BLACK
+            # Without an out-transition running yet (none configured, or the
+            # clip ended early), the cue leaves now.
+            self._end_cue(live, "end of clip")
+            if live.cue.on_end == "black":
+                self.mode = Mode.BLACK
         self._save_state()
 
-    def to_filler(self, reason: str, fade_out: bool = True, fade_in: bool = True) -> None:
-        self.to_background("filler", reason, fade_out, fade_in)
+    def to_filler(self, reason: str) -> None:
+        self.to_background("filler", reason)
 
-    def to_background(self, kind: str, reason: str, fade_out: bool = True, fade_in: bool = True) -> None:
-        """Fade whatever is on stage out and the intro, filler or outro in."""
+    def to_background(self, kind: str, reason: str, start: float | None = None) -> None:
+        """Take whatever is on stage off and bring the intro, filler or outro on."""
         if (
             self.live is None
             and self.visible == self.filler_deck.name
@@ -671,51 +745,68 @@ class ShowController:
         ):
             return
         self._cancel_transition()
-        out = self.cfg.transitions.fade_out if fade_out else 0.0
-        into = self.cfg.transitions.fade_in if fade_in else 0.0
-        self._transition = self._spawn_task(self._background_transition(self.live, kind, reason, out, into), f"to-{kind}")
+        live = self.live
+        if live is not None:
+            live.leaving = True
+        self._transition = self._spawn_task(self._background_transition(live, kind, reason, start), f"to-{kind}")
 
-    async def _background_transition(self, live: Live | None, kind: str, reason: str, fade_out: float, fade_in: float) -> None:
+    async def _background_transition(self, live: Live | None, kind: str, reason: str, start: float | None) -> None:
         background = self.filler_deck
-        if live is not None and live.deck.up and fade_out > 0 and self.visible == live.deck.name:
-            # asyncio.wait: if the fade itself gets cancelled (deck died, unloaded),
-            # carry on with the transition instead of aborting it.
-            await asyncio.wait({live.deck.fade(1.0, fade_out)})
+        if live is not None:
+            # Out of a cue: the cue's out-transition.
+            kind_t, duration = live.cue.transitions.xfade_out_type, live.cue.transitions.xfade_out_duration
+        else:
+            # Between intro, filler and outro: through black (one background deck).
+            kind_t, duration = "fade", self.cfg.transitions.xfade_out_duration
         if self.background_kind != kind or background.state not in (DeckState.PLAYING, DeckState.READY):
-            if self.visible == background.name and background.up and fade_out > 0:
-                await asyncio.wait({background.fade(1.0, fade_out)})  # e.g. filler -> intro
+            # The background deck must load other content first: through black,
+            # half of the time out, half in.
+            half = duration / 2
+            to_black = self.picture.transition(None, "fade", half, start)
+            if self.picture.busy(background.name):
+                await to_black  # it is still on stage: reload it only once it is dark
             self._load_background(kind, paused=False)
             await self._background_ready()
-        shown = self._show_background_now(fade_in)
+            await to_black
+            kind_t, duration, start = "fade", half, None
+        shown = background.up and background.state in (DeckState.PLAYING, DeckState.READY)
+        if shown:
+            background.play()
+            await self.picture.transition(background.name, kind_t, duration, start)
         if self.live is live:
             self.live = None
         self.mode = self._mode_for(kind)
-        if live is not None:
-            self._retire(live)
+        if live is not None and live not in self._retiring:
+            self._retiring.append(live)
         self.log.info(kind, f"{kind} on stage ({reason})" if shown else f"black on stage, {kind} unavailable ({reason})")
-        self._preload_next()
+        self._transition = None
+        self._settle()
         self._save_state()
 
-    def _show_background_now(self, fade_in: float = 0.0) -> bool:
+    def _cut_to_background(self) -> bool:
+        """The background on stage at once (a deck died); black if it is not ready."""
         deck = self.filler_deck
         ok = deck.up and deck.state in (DeckState.PLAYING, DeckState.READY)
         if ok:
-            deck.set_black(1.0 if fade_in > 0 else 0.0)
             deck.play()
-            self.visible = deck.name
-        else:
-            self.visible = None
-        self._apply_stack()
-        if ok and fade_in > 0:
-            deck.fade(0.0, fade_in)
+        self.picture.cut(deck.name if ok else None)
         return ok
+
+    def _fade_in_background(self) -> bool:
+        """From black to the background (start of the show, background ready again)."""
+        deck = self.filler_deck
+        if not (deck.up and deck.state in (DeckState.PLAYING, DeckState.READY)):
+            return False
+        deck.play()
+        self.picture.transition(deck.name, "fade", self.cfg.transitions.xfade_out_duration / 2)
+        return True
 
     def set_blackout(self, on: bool | None, source: str) -> None:
         new = (not self.blackout) if on is None else bool(on)
         if new == self.blackout:
             return
         self.blackout = new
-        self._apply_stack()
+        self.picture.set_blackout(new)
         self.log.info("blackout", f"blackout {'ON' if new else 'OFF'} ({source})", on=new, source=source)
         self._save_state()
 
@@ -866,8 +957,8 @@ class ShowController:
                 return  # the running transition shows it
             if self.live is None and self.mode in (Mode.STARTING, *BACKGROUND_MODES) and self.visible != deck.name:
                 self.mode = self._mode_for(self.background_kind)
-                self._show_background_now(self.cfg.transitions.fade_in)
-            elif self.visible != deck.name:
+                self._fade_in_background()
+            elif not self.picture.busy(deck.name):
                 deck.pause()
             return
         if self.pending is not None and self.pending.load is load:
@@ -898,7 +989,7 @@ class ShowController:
             live.ended = True
             following = self._after(live.cue)
             self.log.error("cue_error", f"cue {cue_id} stopped with an error ({reason}); {following}", cue=cue_id, reason=reason)
-            self.to_background(following, "playback error", fade_out=False)
+            self.to_background(following, "playback error")
             return
         failures = self._load_failures.get(cue_id, 0) + 1
         self._load_failures[cue_id] = failures
@@ -920,6 +1011,16 @@ class ShowController:
         if live is not None and live.deck is deck and not live.ended:
             self._cue_ended(live)
 
+    def _resume_lost(self, deck: Deck) -> bool:
+        """A cue deck is back after every deck went down (compositor restart):
+        rejoin the cue that was lost."""
+        lost, self._lost = self._lost, None
+        if lost is None or self.live is not None or self.pending is not None or not self.cfg.sync.resume_after_crash:
+            return False
+        cue, t0, clip_at_t0 = lost
+        self._cold_start(deck, cue, t0, clip_at_t0, "resume", resume=True)
+        return True
+
     def deck_down(self, deck: Deck, reason: str) -> None:
         self.log.error("deck_down", f"deck {deck.name}: {reason}", deck=deck.name)
         if self.stopping:
@@ -927,33 +1028,41 @@ class ShowController:
         live = self.live
         if live is not None and live.deck is deck:
             self.live = None
-            shown = self._show_background_now()
+            self._cancel_transition()
+            shown = self._cut_to_background()
             self.mode = self._mode_for(self.background_kind)
             expected = self._expected_position(live, now())
             duration = deck.duration
             remaining = (duration - expected) if duration else None
             self.log.error("cue_lost", f"cue {live.cue.id} lost at {expected:.2f} s; {self.background_kind if shown else 'black'} on stage", cue=live.cue.id)
-            if self.cfg.sync.resume_after_crash and (remaining is None or remaining > 2.0):
+            if self.cfg.sync.resume_after_crash and (remaining is None or remaining > 2.0) and not live.leaving:
+                t0 = now() - (expected - live.clip_at_t0)
                 other = self._free_cue_deck()
                 if other is not None:
-                    t = now()
-                    t0 = t - (expected - live.clip_at_t0)
                     self._cold_start(other, live.cue, t0, live.clip_at_t0, "resume", resume=True)
+                else:
+                    self._lost = (live.cue, t0, live.clip_at_t0)
         elif self.pending is not None and self.pending.deck is deck:
             pending = self.pending
             self.pending = None
             other = self._free_cue_deck()
             if other is not None:
                 self._cold_start(other, pending.cue, pending.t0, pending.clip_at_t0, pending.source, pending.resume)
+            else:
+                self._lost = (pending.cue, pending.t0, pending.clip_at_t0)
         if deck is self.filler_deck and self.visible == deck.name:
-            self.visible = None
-        self._apply_stack()
+            self.picture.cut(None)
+        self.picture.refresh()
         self._schedule_respawn(deck)
         self._save_state()
 
     def deck_time(self, deck: Deck, position: float, t: float) -> None:
         live = self.live
-        if live is None or live.deck is not deck or live.corrector is None or live.ended:
+        if live is None or live.deck is not deck or live.ended:
+            return
+        if not live.leaving and live.out_task is None:
+            self._schedule_out(live, position, t)
+        if live.corrector is None:
             return
         corrector = live.corrector
         mtc = self.mtc.snapshot(t) if self.mtc is not None else None
@@ -985,6 +1094,17 @@ class ShowController:
 
     def deck_key(self, deck: Deck, command: str) -> None:
         self.command(command, f"stage key ({deck.name})")
+
+    def stage_key(self, key: str) -> None:
+        """A key pressed in the compositor's window."""
+        command = self._stage_keys.get(key)
+        if command is not None:
+            self.command(command, "stage key")
+
+    def compositor_restarted(self) -> None:
+        """The compositor was restarted: it shows black until told otherwise.
+        (Its decks went down with it and come back on their own.)"""
+        self.picture.resync()
 
     def deck_reconfig(self, deck: Deck) -> None:
         # mpv may have re-stacked its window (HWND_NOTOPMOST) while reconfiguring.
@@ -1019,11 +1139,11 @@ class ShowController:
                 if await deck.spawn():
                     self.stage.register(deck)
                     deck.set_test_mode(self.test_mode)
-                    self._blackout_osd.pop(deck.name, None)
-                    self._apply_stack()
+                    self.picture.deck_restarted(deck.name)
+                    self.picture.refresh()
                     if deck is self.filler_deck:
                         self._load_background(self._wanted_background(self.mode.value))
-                    else:
+                    elif not self._resume_lost(deck):
                         self._preload_next()
                     self.log.info("deck_recovered", f"deck {deck.name} is back", deck=deck.name, restarts=deck.restarts)
                     return
@@ -1052,7 +1172,7 @@ class ShowController:
             return
         if deck.up and deck.ping_failures >= 3:
             if self.live is not None and self.live.deck is deck:
-                self._show_background_now()
+                self._cut_to_background()
             deck.kill("not responding")
 
     def _check_stall(self, t: float) -> None:
@@ -1065,7 +1185,7 @@ class ShowController:
         last = max(deck.time_pos_t, live.went_live_at)
         if t - last > self.cfg.sync.stall_timeout:
             self.log.error("stall", f"deck {deck.name}: playback stalled for {t - last:.1f} s", deck=deck.name, cue=live.cue.id)
-            self._show_background_now()
+            self._cut_to_background()
             deck.kill("playback stalled")
 
     def _check_mtc_stop(self, t: float) -> None:
@@ -1191,11 +1311,12 @@ class ShowController:
             self.live = None
             self._save_state()
             await asyncio.gather(*(deck.quit() for deck in self.decks.values()), return_exceptions=True)
+            try:
+                await self.stage.quit()
+            except Exception as exc:
+                self.log.warn("stage", f"stopping the stage failed: {exc!r}")
         else:
-            # The backdrop dies with this process: make sure nothing that should
-            # not be seen can surface (hidden decks, or everything in a blackout).
-            dark = [d for d in self.decks.values() if d.up and (d.name != self.visible or self.blackout)]
-            await asyncio.gather(*(d.conceal() for d in dark), return_exceptions=True)
+            await self.picture.detach()
             await asyncio.gather(*(deck.detach() for deck in self.decks.values()), return_exceptions=True)
         try:
             self.stage.close()

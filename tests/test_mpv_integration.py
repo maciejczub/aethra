@@ -62,8 +62,8 @@ def show_config(media, tmp_path, **extra):
     data = {
         "show": {"name": "integration", "media_dir": str(media)},
         "mpv": {"path": MPV, "hwdec": "no", "startup_timeout": 10},
-        "stage": {"width": 640, "height": 360},
-        "transitions": {"fade_out": 0.1, "fade_in": 0.1},
+        "stage": {"width": 640, "height": 360, "engine": "windows"},
+        "transitions": {"xfade_out_duration": 0.2},
         # mpv with --vo=null runs a few percent slow inside containers on WSL2
         # (timer overshoot); the clock correction has to make up for it, which
         # is exactly what these tests exercise. Real shows use 1 % at most.

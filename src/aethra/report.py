@@ -12,7 +12,7 @@ PROBLEM_EVENTS = (
     "cue_failed", "preload_failed", "start_late", "start_skipped", "deck_down", "deck_kill", "stall",
     "cue_lost", "midi_lost", "midi_missing", "sync_seek", "filler_failed", "intro_failed", "outro_failed",
     "no_deck", "internal_error",
-    "display_change", "mpv_missing", "stage_monitor",
+    "display_change", "mpv_missing", "stage_monitor", "compositor_down",
 )
 
 

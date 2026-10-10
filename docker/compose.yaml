@@ -1,6 +1,7 @@
 # Test stack (development only). Usage, from the repository root:
 #   docker compose -f docker/compose.yaml run --rm test
 #   docker compose -f docker/compose.yaml run --rm test python -m pytest -m mpv -v
+# Commands run under xvfb-run (a virtual X display for the compositor tests).
 # The image is disposable: remove it with `docker rmi aethra-test-runner:tmp`.
 name: aethra-test
 
@@ -12,6 +13,7 @@ services:
       labels:
         disposable: "true"
     image: aethra-test-runner:tmp
+    init: true  # xvfb-run waits for a signal that never reaches PID 1
     volumes:
       - ..:/src
     working_dir: /src

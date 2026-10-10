@@ -13,7 +13,9 @@ def test_example_config_is_valid():
     assert [c.id for c in cfg.cues] == ["01", "02", "03"]
     assert cfg.midi.channel == 16
     assert cfg.midi.command_notes == {"black": 120, "filler": 121}
-    assert cfg.cues[2].fade_in == 1.0
+    assert cfg.cues[2].transitions.xfade_in_type == "fadeblack"
+    assert cfg.cues[2].transitions.xfade_out_type == "screen"
+    assert cfg.cues[0].transitions == cfg.transitions  # no overrides
     # Media files of the example do not exist: warnings, not errors.
     assert any("not found" in w for w in cfg.warnings)
 
@@ -182,3 +184,40 @@ def test_intro_outro_sections(make_config, tmp_path):
     with pytest.raises(ConfigError) as err:
         make_config({"intro": {"mode": "loop"}})
     assert "intro.file" in "\n".join(err.value.problems)
+
+
+def test_xfade_defaults_and_overrides(make_config):
+    cfg = make_config(
+        {
+            "transitions": {"xfade_out_duration": 2.0, "xfade_out_type": "multiply"},
+            "cues": [
+                {"id": "01", "file": "one.mp4", "midi_note": 36},
+                {"id": "02", "file": "two.mp4", "midi_note": 37, "xfade_in_duration": 1.5, "xfade_in_type": "screen", "xfade_out_type": "fadewhite"},
+            ],
+        }
+    )
+    assert cfg.transitions.xfade_in_duration == 0.0 and cfg.transitions.xfade_in_type == "fade"
+    first, second = cfg.cues
+    assert first.transitions == cfg.transitions
+    assert (second.transitions.xfade_in_duration, second.transitions.xfade_in_type) == (1.5, "screen")
+    # Keys the cue does not set come from the global settings.
+    assert (second.transitions.xfade_out_duration, second.transitions.xfade_out_type) == (2.0, "fadewhite")
+    assert cfg.stage.engine == "compositor"
+
+
+def test_xfade_errors_and_old_keys(make_config):
+    with pytest.raises(ConfigError) as err:
+        make_config(
+            {
+                "transitions": {"fade_out": 0.5, "xfade_in_type": "dissolve", "xfade_out_duration": -1},
+                "cues": [{"id": "01", "file": "one.mp4", "fade_in": 1.0, "xfade_out_type": "burn"}],
+                "stage": {"engine": "opengl"},
+            }
+        )
+    text = "\n".join(err.value.problems)
+    assert "transitions.fade_out: replaced by xfade_out_duration" in text
+    assert "transitions.xfade_in_type: must be one of cut, fade, fadeblack, fadewhite, multiply" in text
+    assert "transitions.xfade_out_duration: must be >= 0.0" in text
+    assert "cues[0] (01).fade_in: replaced by xfade_in_duration" in text
+    assert "cues[0].xfade_out_type: must be one of" in text
+    assert "stage.engine: must be one of compositor, windows" in text

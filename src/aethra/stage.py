@@ -1,4 +1,9 @@
-"""Window stacking on the stage output.
+"""Window stacking on the stage output, and the compositor process.
+
+With the compositor engine (the default) the stage shows one window: the
+compositor's, which draws every deck as a layer (:class:`CompositorStage`
+starts it, watches it and restarts it). With the window engine every deck is
+an mpv process with its own window, stacked as described below.
 
 On Windows the controller owns a black, topmost "backdrop" window that covers
 the stage monitor for the whole session, so the desktop can never show - even
@@ -20,13 +25,17 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import os
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
 
 from aethra.config import StageConfig
 from aethra.eventlog import EventLog
+from aethra.ipc import MpvDisconnected, MpvError, MpvIpc
 from aethra.platform import IS_WINDOWS
 
 if TYPE_CHECKING:
@@ -83,6 +92,7 @@ class Stage(Protocol):
     def apply(self, order: list[str]) -> None: ...
     def maintain(self) -> None: ...
     def close(self) -> None: ...
+    async def quit(self) -> None: ...
 
 
 class NullStage:
@@ -106,6 +116,9 @@ class NullStage:
         pass
 
     def close(self) -> None:
+        pass
+
+    async def quit(self) -> None:
         pass
 
 
@@ -139,6 +152,9 @@ class OntopStage:
         pass
 
     def close(self) -> None:
+        pass
+
+    async def quit(self) -> None:
         pass
 
 
@@ -264,6 +280,9 @@ class Win32Stage:
             w.PostMessageW(self._hwnd, w.WM_CLOSE, 0, 0)
         self._hwnd = None
 
+    async def quit(self) -> None:
+        pass
+
     # -- stacking ----------------------------------------------------------------
 
     def register(self, deck: "Deck") -> None:
@@ -369,3 +388,365 @@ class Win32Stage:
             self._repair("stage windows were minimised (Win+D / Win+M?)")
         elif not self._in_order():
             self._repair("stacking order changed")
+
+
+# --------------------------------------------------------------------------
+# Compositor engine
+
+
+class CompositorError(RuntimeError):
+    pass
+
+
+class LayerProcess:
+    """Stands in for the mpv process of a deck that is a compositor layer."""
+
+    in_job = True
+
+    def __init__(self, stage: "CompositorStage", name: str) -> None:
+        self.stage = stage
+        self.name = name
+
+    @property
+    def pid(self) -> int | None:
+        return self.stage.pid
+
+    def alive(self) -> bool:
+        return self.name in self.stage.layers
+
+    def kill(self) -> None:
+        self.stage.destroy_layer(self.name)
+
+    def reap(self, timeout: float = 0.0) -> int | None:
+        return None
+
+
+class _CompositorWindow:
+    """The compositor's window, stacked by :class:`Win32Stage` like a deck's."""
+
+    name = "compositor"
+
+    def __init__(self) -> None:
+        self.hwnd: int | None = None
+
+    @property
+    def up(self) -> bool:
+        return self.hwnd is not None
+
+
+class CompositorStage:
+    """Starts the compositor process, talks to it, and restarts it if it dies
+    or stops answering. On Windows the backdrop window stays below the
+    compositor's window, so a compositor restart shows black, never the desktop.
+    """
+
+    PING_INTERVAL = 0.5
+    PING_TIMEOUT = 1.0
+    PING_FAILURES = 3  # this many unanswered pings in a row = hung
+
+    def __init__(
+        self,
+        cfg: StageConfig,
+        log: EventLog,
+        address: str,
+        rect: tuple[int, int, int, int],
+        *,
+        python: str = sys.executable,
+        libmpv: str | None = None,
+        log_file: Path | None = None,
+        backdrop: Win32Stage | None = None,
+        startup_timeout: float = 20.0,
+        priority: str = "above_normal",
+        topmost: bool = True,
+    ) -> None:
+        self.cfg = cfg
+        self.log = log
+        self.address = address
+        self.rect = rect
+        self.python = python
+        self.libmpv = libmpv
+        self.log_file = log_file
+        self.backdrop = backdrop
+        self.startup_timeout = startup_timeout
+        self.priority = priority
+        self.topmost = topmost
+        self.ipc: MpvIpc | None = None
+        self.proc: Any = None  # MpvProcess
+        self.pid: int | None = None
+        self.info: dict[str, Any] = {}
+        self.layers: set[str] = set()
+        self.restarts = 0
+        self.on_key: Callable[[str], None] | None = None
+        self.on_restart: Callable[[], None] | None = None
+        self._window = _CompositorWindow()
+        self._ready: asyncio.Event | None = None
+        self._heartbeat: asyncio.Task[None] | None = None
+        self._closing = False
+
+    @property
+    def has_backdrop(self) -> bool:
+        return self.backdrop is not None
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self.cfg.width, self.cfg.height
+
+    def _ready_event(self) -> asyncio.Event:
+        if self._ready is None:
+            self._ready = asyncio.Event()
+        return self._ready
+
+    # -- process ---------------------------------------------------------------
+
+    async def open(self) -> None:
+        """Reconnect to the compositor a previous controller left running, or start one."""
+        if await self._connect(0.3):
+            self.log.info("compositor", f"reconnected to the running compositor (pid {self.pid}, layers {', '.join(sorted(self.layers)) or 'none'})")
+        else:
+            await self._spawn()
+        self._ready_event().set()
+
+    async def _connect(self, timeout: float, hello_timeout: float = 2.0) -> bool:
+        ipc = MpvIpc(self.address, name="compositor", on_event=self._on_event, on_error=self._on_ipc_error)
+        try:
+            await ipc.connect(timeout=timeout)
+        except MpvDisconnected:
+            return False
+        try:
+            info = await ipc.request({"name": "hello"}, hello_timeout)
+        except MpvError:
+            await ipc.close()
+            return False
+        if not isinstance(info, dict):
+            await ipc.close()
+            return False
+        if info.get("protocol") != 1 or tuple(info.get("size") or ()) != self.size:
+            # Another version, or another stage size: replace it.
+            self.log.warn("compositor", f"the running compositor does not match this show ({info.get('size')}); restarting it")
+            ipc.send_named("quit")
+            await ipc.close()
+            await self._wait_gone(info.get("pid"), 3.0)
+            return False
+        self.ipc = ipc
+        self.info = info
+        self.pid = info.get("pid") if isinstance(info.get("pid"), int) else None
+        self.layers = {str(n) for n in info.get("layers") or ()}
+        hwnd = info.get("hwnd")
+        self._window.hwnd = hwnd if isinstance(hwnd, int) and hwnd else None
+        return True
+
+    async def _wait_gone(self, pid: Any, timeout: float) -> None:
+        from aethra.clock import now
+        from aethra.mpvproc import MpvProcess
+
+        if not isinstance(pid, int):
+            return
+        proc = MpvProcess(pid=pid)
+        deadline = now() + timeout
+        while proc.alive() and now() < deadline:
+            await asyncio.sleep(0.05)
+        if proc.alive():
+            proc.kill()
+
+    async def _spawn(self) -> None:
+        from aethra.clock import now
+        from aethra.mpvproc import MpvProcess
+
+        x, y, w, h = self.rect
+        args = [
+            self.python, "-X", "utf8", "-m", "aethra.compositor",
+            "--control", self.address, "--rect", f"{x},{y},{w},{h}", "--size", f"{self.cfg.width},{self.cfg.height}",
+        ]
+        if self.libmpv:
+            args += ["--libmpv", self.libmpv]
+        if self.log_file is not None:
+            args += ["--log", str(self.log_file)]
+        if not self.topmost:
+            args.append("--no-topmost")
+        env = dict(os.environ)
+        package_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        if not IS_WINDOWS:
+            Path(self.address).unlink(missing_ok=True)
+        t0 = now()
+        try:
+            self.proc = MpvProcess.spawn(args, self.priority, output=self.log_file, env=env)
+        except OSError as exc:
+            raise CompositorError(f"cannot start the compositor: {exc}") from exc
+        deadline = t0 + self.startup_timeout
+        while True:
+            if await self._connect(0.5, hello_timeout=max(1.0, deadline - now())):
+                break
+            if not self.proc.alive():
+                code = self.proc.reap(0.1)
+                raise CompositorError(f"the compositor exited during startup (code {code}){self._log_tail()}")
+            if now() > deadline:
+                self.proc.kill()
+                raise CompositorError(f"the compositor did not start within {self.startup_timeout:.0f} s{self._log_tail()}")
+        self.log.info(
+            "compositor",
+            f"compositor running (pid {self.pid}, {(now() - t0) * 1000:.0f} ms): {self.info.get('gl')}, libmpv API {self.info.get('libmpv')}",
+            pid=self.pid,
+        )
+
+    def _log_tail(self) -> str:
+        if self.log_file is None:
+            return ""
+        try:
+            lines = self.log_file.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+        except OSError:
+            return ""
+        return (": " + " | ".join(lines[-3:])) if lines else ""
+
+    async def _restart(self, reason: str) -> None:
+        from aethra.mpvproc import MpvProcess
+
+        self.log.error("compositor_down", f"compositor: {reason}; restarting it")
+        self._ready_event().clear()
+        ipc, self.ipc = self.ipc, None
+        if ipc is not None:
+            await ipc.close()
+        proc = self.proc if self.proc is not None else (MpvProcess(pid=self.pid) if self.pid else None)
+        if proc is not None and proc.alive():
+            proc.kill()
+            await self._wait_gone(self.pid, 2.0)
+        self.layers.clear()
+        self._window.hwnd = None
+        self.pid = None
+        delay = 0.5
+        while not self._closing:
+            try:
+                await self._spawn()
+                break
+            except CompositorError as exc:
+                self.log.error("compositor_down", str(exc))
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 5.0)
+        if self._closing:
+            return
+        self.restarts += 1
+        self._ready_event().set()
+        self.apply([])
+        if self.on_restart is not None:
+            self.on_restart()
+
+    async def _watch(self) -> None:
+        failures = 0
+        while not self._closing:
+            await asyncio.sleep(self.PING_INTERVAL)
+            ipc = self.ipc
+            if ipc is None or not ipc.connected:
+                await self._restart("connection lost (the compositor stopped)")
+                failures = 0
+                continue
+            try:
+                await ipc.request({"name": "ping"}, self.PING_TIMEOUT)
+                failures = 0
+            except MpvError:
+                failures += 1
+                if failures >= self.PING_FAILURES:
+                    await self._restart(f"no answer for {failures * self.PING_INTERVAL + self.PING_TIMEOUT:.1f} s (hung)")
+                    failures = 0
+
+    def _on_event(self, msg: dict[str, Any]) -> None:
+        event = msg.get("event")
+        if event == "layer_down":
+            self.layers.discard(str(msg.get("layer")))
+        elif event == "key" and self.on_key is not None:
+            self.on_key(str(msg.get("key")))
+
+    def _on_ipc_error(self, what: str, exc: BaseException) -> None:
+        if not isinstance(exc, MpvDisconnected):
+            self.log.warn("compositor", f"{what}: {exc}")
+
+    # -- layers ------------------------------------------------------------------
+
+    async def create_layer(self, name: str, options: dict[str, str]) -> LayerProcess:
+        try:
+            await asyncio.wait_for(self._ready_event().wait(), timeout=self.startup_timeout + 5.0)
+        except asyncio.TimeoutError as exc:
+            raise CompositorError("the compositor is not running") from exc
+        ipc = self.ipc
+        if ipc is None:
+            raise CompositorError("the compositor is not running")
+        try:
+            reply = await ipc.request({"name": "create_layer", "layer": name, "options": options}, 10.0)
+        except MpvError as exc:
+            raise CompositorError(f"layer {name}: {exc}") from exc
+        self.layers.add(name)
+        dropped = (reply or {}).get("dropped") if isinstance(reply, dict) else None
+        if dropped:
+            self.log.debug("mpv_options", f"layer {name}: options this libmpv does not take: {', '.join(dropped)}")
+        return LayerProcess(self, name)
+
+    def layer_process(self, name: str) -> LayerProcess:
+        return LayerProcess(self, name)
+
+    def destroy_layer(self, name: str) -> None:
+        self.layers.discard(name)
+        self.send({"name": "destroy_layer", "layer": name})
+
+    def send(self, command: dict[str, Any]) -> None:
+        """Fire and forget; a lost command is repaired by the restart logic."""
+        if self.ipc is not None and self.ipc.connected:
+            self.ipc._detach(self.ipc.request(command))
+
+    async def request(self, command: dict[str, Any], timeout: float = 2.0) -> Any:
+        if self.ipc is None:
+            raise MpvDisconnected("compositor: not connected")
+        return await self.ipc.request(command, timeout)
+
+    # -- Stage protocol ------------------------------------------------------------
+
+    def start(self) -> None:
+        if self.backdrop is not None:
+            self.backdrop.start()
+            self.backdrop.register(self._window)  # type: ignore[arg-type]
+        self.apply([])
+        self._heartbeat = asyncio.get_running_loop().create_task(self._watch(), name="compositor-watch")
+
+    def register(self, deck: "Deck") -> None:
+        pass  # layers have no windows
+
+    def apply(self, order: list[str]) -> None:
+        if self.backdrop is not None:
+            self.backdrop.apply([self._window.name, BACKDROP])
+
+    def maintain(self) -> None:
+        if self.backdrop is not None:
+            self.backdrop.maintain()
+
+    def close(self) -> None:
+        """Stop watching; the compositor keeps running (see :meth:`quit`)."""
+        self._closing = True
+        if self._heartbeat is not None:
+            self._heartbeat.cancel()
+        if self.ipc is not None:
+            ipc, self.ipc = self.ipc, None
+            asyncio.get_running_loop().create_task(ipc.close())
+        if self.backdrop is not None:
+            self.backdrop.close()
+
+    async def quit(self) -> None:
+        """End of the show: the compositor exits (after the decks have quit)."""
+        self._closing = True
+        if self._heartbeat is not None:
+            self._heartbeat.cancel()
+        ipc, self.ipc = self.ipc, None
+        if ipc is not None and ipc.connected:
+            try:
+                await ipc.request({"name": "quit"}, 2.0)
+            except MpvError:
+                pass
+            await ipc.close()
+        if self.proc is not None:
+            from aethra.clock import now
+
+            deadline = now() + 3.0
+            while self.proc.alive() and now() < deadline:
+                await asyncio.sleep(0.05)
+            if self.proc.alive():
+                self.proc.kill()
+            self.proc.reap(0.5)
+        else:
+            await self._wait_gone(self.pid, 3.0)

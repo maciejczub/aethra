@@ -4,7 +4,8 @@ Meant for the show laptop (the Windows-specific parts cannot be tested in CI):
 IPC round trips over the named pipe, the playback rate of a real mpv against
 the system clock, timer accuracy, MIDI and screen enumeration, global hotkey
 registration, and - with ``--windows`` - the backdrop window and z-order
-control on the stage screen (this briefly shows a test picture there).
+control on the stage screen, and the compositor playing a test picture there
+(this briefly shows test pictures on the stage screen).
 """
 
 from __future__ import annotations
@@ -159,6 +160,60 @@ async def _zorder_check(ipc: MpvIpc, proc: MpvProcess, cfg: Config) -> list[Chec
         stage.close()
 
 
+async def _compositor_check(mpv: str, cfg: Config) -> list[Check]:
+    """Start the compositor on the stage screen, play a test picture in one
+    layer for a few seconds and report what it achieved."""
+    from aethra.eventlog import EventLog
+    from aethra.mpvproc import build_layer_options
+    from aethra.stage import CompositorError, CompositorStage, choose_monitor, list_monitors
+
+    rect = (0, 0, cfg.stage.width, cfg.stage.height)
+    chosen = choose_monitor(cfg.stage, list_monitors())
+    if chosen is not None:
+        rect = (chosen.left, chosen.top, chosen.width, chosen.height)
+    libmpv = cfg.mpv.libmpv
+    if libmpv is None and IS_WINDOWS and (Path(mpv).parent / "libmpv-2.dll").is_file():
+        libmpv = str(Path(mpv).parent / "libmpv-2.dll")
+    stage = CompositorStage(cfg.stage, EventLog(None, None), ipc_address("selftest", "compositor"), rect, libmpv=libmpv)
+    t0 = now()
+    try:
+        await stage.open()
+    except CompositorError as exc:
+        return [Check("compositor", "FAIL", f"{exc} - the show would run with the window engine (no cross-fades)")]
+    started = (now() - t0) * 1000
+    checks = [Check("compositor", "PASS", f"started in {started:.0f} ms: {stage.info.get('gl')}, libmpv API {stage.info.get('libmpv')}")]
+    address = ipc_address("selftest", "L")
+    if not IS_WINDOWS:
+        Path(address).unlink(missing_ok=True)
+    ipc = MpvIpc(address, name="selftest layer")
+    try:
+        options = build_layer_options(cfg, "L", address, None, supported_options(mpv)).options
+        await stage.create_layer("L", options)
+        await ipc.connect(timeout=5.0)
+        s = cfg.stage
+        await ipc.command_named("loadfile", url=f"av://lavfi:testsrc2=s={s.width}x{s.height}:r={s.fps:g}", flags="replace")
+        await stage.request({"name": "transition", "to": "L", "type": "fade", "duration": 1.0})
+        before = await stage.request({"name": "status"})
+        await asyncio.sleep(4.0)
+        after = await stage.request({"name": "status"})
+        rendered = after["layer_frames"].get("L", 0) - before["layer_frames"].get("L", 0)
+        expected = 4.0 * s.fps
+        slow = after["slow_frames"] - before["slow_frames"]
+        status = "PASS" if rendered >= 0.9 * expected and slow == 0 else "WARN"
+        checks.append(Check(
+            "compositor playback", status,
+            f"display {after['fps']:.1f} fps, test picture {rendered / 4.0:.1f} of {s.fps:g} fps, {slow} frames over 100 ms",
+        ))
+        hwdec = await ipc.get_or("hwdec-current")
+        checks.append(Check("compositor decoder", "INFO", f"hwdec {hwdec or 'no'} for the generated test picture (try a real clip with 'aethra bench')"))
+    except Exception as exc:  # noqa: BLE001 - reported as the check result
+        checks.append(Check("compositor playback", "FAIL", str(exc) or type(exc).__name__))
+    finally:
+        await ipc.close()
+        await stage.quit()
+    return checks
+
+
 def _hotkey_check() -> Check:
     if not IS_WINDOWS:
         return Check("global hotkeys", "INFO", "Windows only")
@@ -217,6 +272,8 @@ async def run_selftest(cfg: Config | None, mpv: str, show_window: bool) -> list[
         if chosen is not None:
             cfg = dataclasses.replace(cfg, stage=dataclasses.replace(cfg.stage, screen=chosen.index))
     checks.extend(await _mpv_checks(mpv, cfg, show_window))
+    if show_window and cfg.stage.engine == "compositor":
+        checks.extend(await _compositor_check(mpv, cfg))
     return checks
 
 

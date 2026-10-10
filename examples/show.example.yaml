@@ -18,12 +18,15 @@ stage:
   width: 1920
   height: 1080
   fps: 25
+  # engine: compositor          # compositor (one window, all transitions) | windows (one mpv
+                                # window per deck; transitions dip through black)
 
 mpv:
   path: mpv/mpv.exe             # relative to this file, or just "mpv" if it is on PATH
   hwdec: auto-safe              # choose with "aethra bench" on the show laptop: auto-safe, d3d11va, no, ...
-  # vo: gpu-next                # leave unset for mpv's default
+  # vo: gpu-next                # window engine only; leave unset for mpv's default
   # extra_args: ["--d3d11-flip=yes"]
+  # libmpv: mpv/libmpv-2.dll    # compositor engine; default: next to mpv.exe
 
 filler:                         # what is shown between songs
   mode: loop                    # color | image | loop
@@ -40,8 +43,17 @@ filler:                         # what is shown between songs
 #   file: thank-you.png
 
 transitions:
-  fade_out: 0.5                 # seconds: end of a song -> black
-  fade_in: 0.5                  # seconds: black -> filler
+  # How a song comes on stage (in) and leaves it (out), whatever the other
+  # picture is (intro, filler, outro or the previous song). Types: cut, fade,
+  # fadeblack, fadewhite, or a blend mode: multiply, screen, overlay, softlight,
+  # hardlight, darken, lighten, colordodge, colorburn, lineardodge, linearburn,
+  # difference, exclusion, subtract, divide, vividlight, linearlight, pinlight,
+  # hardmix, hue, saturation, color, luminosity, darkercolor, lightercolor.
+  # Every cue can override these four keys.
+  xfade_in_duration: 0.0        # seconds; 0 = cut (the first frame is on stage at the trigger)
+  xfade_in_type: fade
+  xfade_out_duration: 1.0       # starts this many seconds before the clip ends
+  xfade_out_type: fade
 
 sync:
   # Extra lead for the whole video chain (projector/LED processing, MIDI
@@ -119,6 +131,9 @@ cues:
     title: Ballad
     file: 03-ballad.mp4
     midi_note: 38
-    fade_in: 1.0                # fade in from black instead of a cut
+    xfade_in_duration: 2.0      # this song fades in through black...
+    xfade_in_type: fadeblack
+    xfade_out_duration: 4.0     # ...and dissolves into the filler with a blend mode
+    xfade_out_type: screen
     # osc: /aethra/song/3       # an extra OSC address that triggers this cue
     # mtc_start: "00:12:30:00"  # REAPER timecode of the trigger (else measured at the trigger)

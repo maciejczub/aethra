@@ -22,24 +22,27 @@ relative to `show.media_dir`. Durations are in seconds.
 |---|---|---|
 | `screen` | first screen that is not the main display | Index from `aethra devices`. |
 | `screen_name` | – | Windows device name instead of the index, e.g. `\\.\DISPLAY2`. |
-| `width`, `height` | `1920`, `1080` | Stage resolution (overlays, filler colour, backdrop fallback). |
+| `width`, `height` | `1920`, `1080` | Stage resolution: the compositor's picture size (scaled to the screen if it differs), overlays, filler colour. |
 | `fps` | `25` | Master frame rate (timecode display, "one frame" thresholds). |
+| `engine` | `compositor` | `compositor`: one window, the decks are layers composed on the GPU (all transition types). `windows`: one mpv window per deck; every transition dips through black (white for `fadewhite`). If the compositor cannot start, the window engine is used and the reason is logged. `aethra run --engine` overrides it. |
 
 ## `mpv`
 
 | Key | Default | |
 |---|---|---|
 | `path` | `mpv` | `mpv/mpv.exe` in the bundle; a bare name is searched on PATH. |
+| `libmpv` | next to `mpv.exe` | Compositor engine: the libmpv library (`libmpv-2.dll` from the "mpv-dev" archive of the same mpv build). |
 | `hwdec` | `auto-safe` | Decoder; choose with `aethra bench` ([codec-selection.md](codec-selection.md)). |
-| `vo` | mpv default | Video output, e.g. `gpu-next` or `gpu`. |
-| `priority` | `above_normal` | Windows priority of the players: `normal`, `above_normal`, `high`. |
-| `extra_args` | `[]` | Extra mpv options, e.g. `["--d3d11-flip=no"]`. |
+| `vo` | mpv default | Window engine: video output, e.g. `gpu-next` or `gpu`. |
+| `priority` | `above_normal` | Windows priority of the players (and the compositor): `normal`, `above_normal`, `high`. |
+| `extra_args` | `[]` | Extra mpv options, e.g. `["--d3d11-flip=no"]`; `--name=value` options also apply to compositor layers. |
 | `startup_timeout` | `15` | Seconds to wait for a player to come up. |
 
 Aethra starts mpv with `--no-config` and a fixed set of options (no on-screen
 controller, no default key bindings, no audio, no subtitles, keep-open,
 full screen on the stage screen, cursor hidden); options the installed mpv does
-not know are left out automatically.
+not know are left out automatically. Compositor layers get the same options
+without the window ones, and use mpv's single-pass renderer (`gpu-dumb-mode`).
 
 ## `filler`
 
@@ -51,12 +54,47 @@ not know are left out automatically.
 
 ## `transitions`
 
+How a song comes on stage (*in*) and leaves it (*out*), whatever the other
+picture is: the intro, the filler, the outro, or the previous song. Every cue
+can override each of the four keys.
+
 | Key | Default | |
 |---|---|---|
-| `fade_out` | `0.5` | End of a clip (or `F`) → black. |
-| `fade_in` | `0.5` | Black → filler. |
+| `xfade_in_duration` | `0.0` | Seconds; `0` = a cut: the clip's first frame is on stage at the trigger. |
+| `xfade_in_type` | `fade` | See the types below. |
+| `xfade_out_duration` | `1.0` | Seconds. The transition **starts this long before the clip ends**, so the filler (outro, or black for `on_end: black`) has taken over when the last frame is reached. |
+| `xfade_out_type` | `fade` | |
 
-Cues start with a cut unless the cue has `fade_in`.
+Types:
+
+* `cut`, `fade` (a cross-fade), `fadeblack`, `fadewhite` (the old picture
+  fades to black/white, then the new one comes up from it);
+* blend modes: `multiply`, `screen`, `overlay`, `softlight`, `hardlight`,
+  `darken`, `lighten`, `colordodge`, `colorburn`, `lineardodge`, `linearburn`,
+  `difference`, `exclusion`, `subtract`, `divide`, `vividlight`,
+  `linearlight`, `pinlight`, `hardmix`, `hue`, `saturation`, `color`,
+  `luminosity`, `darkercolor`, `lightercolor`. In the first half of the
+  transition the new picture is blended onto the old one with that mode,
+  rising to full strength (halfway through the picture is exactly
+  *mode(old, new)*); in the second half the blend gives way to the new picture.
+
+Details:
+
+* The in-transition starts when the cue goes live; the clip plays in sync from
+  its first frame underneath it.
+* Operator commands (`filler`, `intro`, `outro`) and playback errors during a
+  song use the song's out-transition, starting at once. To black
+  (`on_end: black`) is always a plain fade, whatever the type.
+* Switching between intro, filler and outro (the operator calls one while
+  another is on stage) goes through black: half of the global
+  `xfade_out_duration` out, half in. At start-up the first background fades in
+  from black in that half time.
+* A cue that rejoins after a crash comes back with a cut.
+* With the window engine every type other than `cut` dips through black
+  (`fadewhite`: through white).
+
+The old keys `fade_in`/`fade_out` (and a cue's `fade_in`) are no longer
+accepted; `aethra check` names their replacements.
 
 ## `intro` and `outro` (optional)
 
@@ -70,8 +108,8 @@ without it.
 
 Between songs the filler is shown as before. Both can also be called at any time
 with the `intro` / `outro` commands (`midi.command_notes`, `keyboard.keys`,
-`/aethra/intro`, `/aethra/outro`): whatever is on stage fades out and the intro or
-outro fades in.
+`/aethra/intro`, `/aethra/outro`): a song on stage leaves with its
+out-transition, another background goes through black (see `transitions`).
 
 ## `sync`
 
@@ -174,5 +212,5 @@ A list in set order (`next`/`prev`/GO follow it).
 | `osc` | – | Extra OSC trigger: `"/address"` or `{address: "/addr", arg: "value"}`. |
 | `offset` | `0.0` | Clip position (s) that coincides with the trigger: `2.0` = the clip has 2 s before the trigger point; `-1.0` = the trigger comes 1 s before the clip starts. |
 | `on_end` | `filler` | At the end of the clip: `filler` (the outro after the last cue, if configured), `hold` (keep the last frame), `black`. |
-| `fade_in` | `0.0` | Fade in from black instead of a cut. |
+| `xfade_in_duration`, `xfade_in_type`, `xfade_out_duration`, `xfade_out_type` | from `transitions` | This cue's transitions. |
 | `mtc_start` | – | REAPER timecode of the trigger (`HH:MM:SS:FF`); without it the MTC position at the trigger is used. |

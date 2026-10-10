@@ -3,7 +3,7 @@
 Three layers:
 
 1. **Automated tests** (every change): unit tests plus integration tests that
-   drive a real mpv. They run on Linux in a container.
+   drive a real mpv and the compositor. They run on Linux in a container.
 2. **Show-laptop validation** (once per laptop / mpv / Windows update): the
    Windows-specific parts that cannot run in CI.
 3. **Rehearsal tests** (before a tour or a new set): the five tests from the
@@ -17,16 +17,26 @@ turns the event log of each run into a table you can paste.
 ```bash
 docker compose -f docker/compose.yaml run --rm test                       # everything
 docker compose -f docker/compose.yaml run --rm test python -m pytest -m mpv -v   # only the real-mpv tests
+docker compose -f docker/compose.yaml run --rm test python -m pytest -m compositor -v   # only the compositor
 ```
 
-Without Docker: `pip install -e .[dev]` and `python -m pytest` (the mpv tests
-are skipped unless `mpv` and `ffmpeg` are on PATH).
+The container runs every command on a virtual X display (Xvfb) with Mesa's
+software OpenGL, so the compositor runs there as it does on Windows. Without
+Docker: `pip install -e .[dev] glfw` and `python -m pytest` (the mpv tests are
+skipped unless `mpv` and `ffmpeg` are on PATH, the compositor tests unless
+libmpv, glfw and a display are available).
 
-What the integration tests cover with a real mpv (`--vo=null`): preloaded
-trigger latency and sync, end of clip → filler, cold start released in sync,
-broken file never reaching the stage, a killed mpv being replaced and the cue
-rejoined in sync, a controller restart continuing the running cue, OSD fades
-and blackout.
+What the integration tests cover with a real mpv (`--vo=null`, window engine):
+preloaded trigger latency and sync, end of clip → filler, cold start released
+in sync, broken file never reaching the stage, a killed mpv being replaced and
+the cue rejoined in sync, a controller restart continuing the running cue, OSD
+fades and blackout.
+
+With the compositor: every transition type and blend mode at several points of
+its progress, pixel by pixel against the Python reference of the formulas;
+layers upright, cuts, blackout, stacked transitions, a player quitting; a show
+cross-fading into a song and out of it before the clip ends; a killed
+compositor being restarted with its layers and the filler coming back.
 
 ## 2. Show-laptop validation (Windows)
 
@@ -48,24 +58,32 @@ Start with the automatic measurements:
 
 It reports the IPC round trip over the named pipe, the timer accuracy, whether
 mpv's playback rate matches the system clock (`playback rate` must be 1.000),
-dropped frames, the video output and refresh rate, global hotkey registration
-and whether the window stacking (backdrop/deck) can be controlled. Any `FAIL`
-must be understood before going further.
+dropped frames, the video output and refresh rate, global hotkey registration,
+whether the window stacking (backdrop/deck) can be controlled, and - with the
+compositor engine - whether the compositor starts (OpenGL renderer, libmpv)
+and plays a test picture at full frame rate without hitches. Any `FAIL` must be
+understood before going further (a failing compositor means the show would run
+with the window engine).
+
+In Task Manager the compositor is the `python.exe` whose command line contains
+`aethra.compositor`; the controller is the other one. With the window engine the
+players are `mpv.exe` processes.
 
 | # | Check | How | Expected |
 |---|---|---|---|
 | V1 | Stage output | `aethra devices`; start the show | Video on the stage screen only; console on the laptop panel; no cursor over the stage. |
 | V2 | Deck switching | Test mode on (`Ctrl+T`), trigger cues back to back (`Space`), 30 times | No black or desktop flash between cues; film it at 120/240 fps if in doubt. |
-| V3 | Backdrop | Kill all `mpv.exe` in Task Manager | Black (not the desktop) within a moment, then the filler returns. |
-| V4 | Crash during a cue | Kill the playing `mpv.exe` | Cut to filler, the song comes back in sync within ~1 s. No error dialog. |
-| V5 | Hang | `Suspend` the playing mpv in Resource Monitor / Process Explorer | Filler after `stall_timeout`, deck restarted, song rejoined. |
+| V3 | Backdrop | Kill the compositor (window engine: all `mpv.exe`) in Task Manager | Black (not the desktop) within a moment, then the filler returns. |
+| V4 | Crash during a cue | Kill the compositor (window engine: the playing `mpv.exe`) | Compositor: about a second of black, then the song comes back in sync. Window engine: cut to filler, the song comes back in sync within ~1 s. No error dialog. |
+| V5 | Hang | `Suspend` the compositor (window engine: the playing mpv) in Resource Monitor / Process Explorer | The frozen picture is replaced within ~3 s (compositor restarted, or filler after `stall_timeout`), song rejoined. |
 | V6 | Controller crash | Close the Python process in Task Manager (not the window) | `Aethra.cmd` restarts it, the picture does not change, the log shows `cue_restored`. |
 | V7 | Global keys | Focus another window (e.g. Notepad), press `B`, `B`, `F`, `Space` | Blackout on/off, filler, GO work regardless of focus. |
-| V8 | Alt+F4 on stage | Click the stage window, press Alt+F4 | The deck restarts; picture recovers (filler or the song). |
+| V8 | Alt+F4 on stage | Click the stage window, press Alt+F4 | Compositor: nothing happens. Window engine: the deck restarts; picture recovers (filler or the song). |
 | V9 | Display hot-plug | Unplug and replug the projector cable during a song | Note what Windows does with the windows; after replug the stage must show video or the backdrop, never the desktop. Repeat with the projector powered off/on. |
 | V10 | Notifications | Trigger a toast (e.g. plug a USB stick) | Nothing on the stage output. |
 | V11 | MIDI port | `aethra monitor`, play the REAPER cue track | Notes on channel 16 and, if used, `MTC running`. |
 | V12 | Show desktop | Press `Win+D`, then `Win+M` | The stage windows come back within about half a second (log: `stage windows were minimised`). |
+| V13 | Transitions | Test mode on; give a few cues different `xfade_in_type`/`xfade_out_type`; trigger them in and out of the filler and back to back | Every transition runs smoothly at the display rate; the out-transition is over when the clip's last frame (timecode in the clip) is reached; `dropped vo 0` in the overlay. |
 
 V2 and V9 are the two items that depend most on the particular laptop, GPU
 driver and Windows build — do not skip them.
@@ -120,7 +138,9 @@ once (simulates a full crash), then start Aethra from the shortcut.
 Pass: (a) and (b) the picture is not interrupted (the console window only
 detaches from the running players; the restarted controller takes them over —
 log `cue_restored`); (c) black, then the filler, then the song is rejoined at
-its expected position (log `cue_resume`). In every case the next trigger works
+its expected position (log `cue_resume`). For (c) end both Aethra `python.exe`
+processes (controller and compositor) — with the window engine every `mpv.exe`
+and the Python process. In every case the next trigger works
 and the selected next cue is still correct. (A deliberate quit with
 `Ctrl+Shift+Q` is a clean stop: the players close and the song is not
 rejoined on the next start.)
