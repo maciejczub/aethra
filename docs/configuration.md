@@ -58,6 +58,21 @@ not know are left out automatically.
 
 Cues start with a cut unless the cue has `fade_in`.
 
+## `intro` and `outro` (optional)
+
+Same keys as `filler` (`mode`, `file`, `color`). Leave a section out to do
+without it.
+
+* **intro** - shown from the start of the show (instead of the filler) until the
+  first cue is triggered; the first cue is preloaded meanwhile.
+* **outro** - shown automatically when the *last* cue of the list ends (instead
+  of the filler; a last cue with `on_end: hold` or `black` keeps that ending).
+
+Between songs the filler is shown as before. Both can also be called at any time
+with the `intro` / `outro` commands (`midi.command_notes`, `keyboard.keys`,
+`/aethra/intro`, `/aethra/outro`): whatever is on stage fades out and the intro or
+outro fades in.
+
 ## `sync`
 
 | Key | Default | |
@@ -97,7 +112,7 @@ Keeps a playing clip locked to its trigger. The reference is the laptop clock
 | `port` | *(required)* | Part of the input name (case-insensitive), or `*` for the first input. |
 | `channel` | `any` | `1`–`16` or `any`. |
 | `backend` | `auto` | `winmm` (Windows), `rtmidi` (needs python-rtmidi). |
-| `command_notes` | `{}` | Notes on the same channel for commands: `go`, `next`, `prev`, `black`, `filler`, `test`. |
+| `command_notes` | `{}` | Notes on the same channel for commands: `go`, `next`, `prev`, `black`, `filler`, `intro`, `outro`, `test`. |
 | `reconnect_interval` | `2.0` | How often the port list is checked. |
 
 ## `osc`
@@ -110,9 +125,11 @@ Keeps a playing clip locked to its trigger. The reference is the laptop clock
 | `require_playing` | `false` | Per-cue OSC triggers only while REAPER reports `/play 1`. |
 
 Built-in addresses: `/aethra/cue <id or 1-based number>`, `/aethra/go`,
-`/aethra/next`, `/aethra/prev`, `/aethra/filler`, `/aethra/black [1|0]`
-(no argument toggles), `/aethra/test [1|0]`. A float/int argument below 0.5 on
-`go`/`next`/`prev`/`filler` is ignored (button release from control surfaces).
+`/aethra/next`, `/aethra/prev`, `/aethra/filler`, `/aethra/intro`,
+`/aethra/outro`, `/aethra/black [1|0]` (no argument toggles),
+`/aethra/test [1|0]`. A float/int argument below 0.5 on
+`go`/`next`/`prev`/`filler`/`intro`/`outro` is ignored (button release from
+control surfaces).
 
 ## `keyboard`
 
@@ -126,8 +143,8 @@ Built-in addresses: `/aethra/cue <id or 1-based number>`, `/aethra/go`,
 Key names: `a`–`z`, `0`–`9`, `f1`–`f24`, `space`, `enter`, `escape`, `tab`,
 `backspace`, `left`, `right`, `up`, `down`, `pageup`, `pagedown`, `home`,
 `end`, `insert`, `delete`, `numpad0`–`numpad9`; modifiers `ctrl+`, `alt+`,
-`shift+`, `win+`. Commands: `go`, `next`, `prev`, `black`, `filler`, `test`,
-`quit` (needs two presses within 3 s).
+`shift+`, `win+`. Commands: `go`, `next`, `prev`, `black`, `filler`, `intro`,
+`outro` (no default keys), `test`, `quit` (needs two presses within 3 s).
 
 ## `logging`
 
@@ -156,6 +173,6 @@ A list in set order (`next`/`prev`/GO follow it).
 | `midi_program` | – | Or a program change. |
 | `osc` | – | Extra OSC trigger: `"/address"` or `{address: "/addr", arg: "value"}`. |
 | `offset` | `0.0` | Clip position (s) that coincides with the trigger: `2.0` = the clip has 2 s before the trigger point; `-1.0` = the trigger comes 1 s before the clip starts. |
-| `on_end` | `filler` | At the end of the clip: `filler`, `hold` (keep the last frame), `black`. |
+| `on_end` | `filler` | At the end of the clip: `filler` (the outro after the last cue, if configured), `hold` (keep the last frame), `black`. |
 | `fade_in` | `0.0` | Fade in from black instead of a cut. |
 | `mtc_start` | – | REAPER timecode of the trigger (`HH:MM:SS:FF`); without it the MTC position at the trigger is used. |

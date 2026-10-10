@@ -168,3 +168,17 @@ def test_deck_args_without_option_list(make_config, tmp_path):
     known = build_deck_args("mpv", cfg, "A", "/tmp/x.sock", None, frozenset({"idle", "media-controls"}))
     assert "--media-controls=no" in known.args and "--idle=yes" in known.args
     assert "keep-open" in known.dropped
+
+
+
+def test_intro_outro_sections(make_config, tmp_path):
+    cfg = make_config({"intro": {"mode": "color", "color": "#101010"}, "outro": {"mode": "loop", "file": "end.mp4"},
+                       "midi": {"port": "*", "command_notes": {"intro": 100, "outro": 101}}})
+    assert cfg.intro.color == "#101010" and cfg.outro.mode == "loop"
+    assert any("outro file not found" in w for w in cfg.warnings)
+    assert cfg.midi.command_notes == {"intro": 100, "outro": 101}
+    plain = make_config()
+    assert plain.intro is None and plain.outro is None
+    with pytest.raises(ConfigError) as err:
+        make_config({"intro": {"mode": "loop"}})
+    assert "intro.file" in "\n".join(err.value.problems)

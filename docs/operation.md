@@ -16,7 +16,8 @@
    and the stage screen. `verify` decodes the start and end of every clip
    (without `--quick`: every frame — do that once after copying new media).
 4. Start the show: double-click the **Aethra** shortcut (or `Aethra.cmd`).
-   The stage shows black, then the filler fades in. The console shows:
+   The stage shows black, then the intro (or, without one, the filler) fades
+   in; the first cue is already preloaded. The console shows:
 
    ```
    20:41:07.112    show_ready     show 'Tour 2026': 14 cues, next 01 'Opening'
@@ -37,7 +38,7 @@ CUE 03 00:02:14:07/00:04:51:00 [B] | next 04 ready | MIDI ok | MTC running 00:31
 
 | Part | Meaning |
 |---|---|
-| `FILLER` / `CUE id pos/duration [deck]` / `HOLD` / `BLACK` | What is on stage. |
+| `INTRO` / `FILLER` / `OUTRO` / `CUE id pos/duration [deck]` / `HOLD` / `BLACK` | What is on stage. |
 | `next 04 ready` | The cue `Space` (GO) would start, and whether it is preloaded. `FAILED` = its file cannot be played. |
 | `MIDI ok` / `waiting` / `lost` | The MIDI input. `waiting`: the port is not there (cable, rtpMIDI session). |
 | `MTC running/stopped/none` | Only with `sync.mtc.enabled`. |
@@ -68,8 +69,11 @@ All keys can be changed in `show.yaml` (`keyboard.keys`).
 
 ## During the show
 
-Normally nothing: every song is started by its trigger, the clip ends with a
-fade to the filler, the next clip is already waiting.
+Normally nothing: the intro plays until the first trigger, every song is
+started by its trigger, a clip ends with a fade to the filler (after the last
+song: the outro, if configured), and the next clip is already waiting.
+The intro and outro can also be called at any time through command notes, OSC
+(`/aethra/intro`, `/aethra/outro`) or keys bound in `keyboard.keys`.
 
 | Situation | What to do |
 |---|---|

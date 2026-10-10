@@ -1,6 +1,7 @@
 """The show controller: decides what is on stage.
 
-Decks: ``F`` (filler) and two cue decks, ``A`` and ``B``. While a cue plays on
+Decks: ``F`` (the background: intro, filler or outro) and two cue decks, ``A``
+and ``B``. While a cue plays on
 one cue deck, the other holds the next cue paused on its first frame. A
 trigger then only needs to unpause that deck and raise its window.
 
@@ -29,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from aethra.clock import WallClock, now, sleep_until
-from aethra.config import Config, Cue
+from aethra.config import Config, Cue, FillerConfig
 from aethra.deck import Deck, DeckState, Load
 from aethra.eventlog import EventLog
 from aethra.mtc import MtcDecoder, format_seconds
@@ -43,10 +44,16 @@ MAX_LOAD_FAILURES = 3
 
 class Mode(str, enum.Enum):
     STARTING = "starting"
+    INTRO = "intro"
     FILLER = "filler"
+    OUTRO = "outro"
     CUE = "cue"
     HOLD = "hold"
     BLACK = "black"
+
+
+BACKGROUND_KINDS = ("intro", "filler", "outro")
+BACKGROUND_MODES = (Mode.INTRO, Mode.FILLER, Mode.OUTRO)
 
 
 @dataclass(eq=False)
@@ -150,6 +157,8 @@ class ShowController:
         self._mtc_was_running = False
         self._last_trigger: tuple[str, str, float] | None = None
         self._blackout_osd: dict[str, bool] = {}
+        # What the background deck F holds (or is loading): intro, filler or outro.
+        self.background_kind = "filler"
         self._notes = {c.midi_note: c for c in cfg.cues if c.midi_note is not None}
         self._programs = {c.midi_program: c for c in cfg.cues if c.midi_program is not None}
         self._command_notes = {note: cmd for cmd, note in cfg.midi.command_notes.items()}
@@ -181,13 +190,37 @@ class ShowController:
     def _clip_at_trigger(self, cue: Cue) -> float:
         return cue.offset + self.cfg.sync.latency_compensation
 
-    def _filler_media(self, force_color: bool = False) -> tuple[str, bool]:
-        f = self.cfg.filler
+    def _background_config(self, kind: str) -> FillerConfig:
+        return {"intro": self.cfg.intro, "outro": self.cfg.outro}.get(kind) or self.cfg.filler
+
+    def _background_media(self, kind: str, force_color: bool = False) -> tuple[str, bool]:
+        f = self._background_config(kind)
         if not force_color and f.mode in ("loop", "image") and f.file is not None and f.file.is_file():
             return str(f.file), f.mode == "loop"
         s = self.cfg.stage
         color = f.color.lstrip("#")
         return f"av://lavfi:color=c=0x{color}:s={s.width}x{s.height}:r={s.fps:g}", False
+
+    def _has_background(self, kind: str) -> bool:
+        return kind == "filler" or (kind == "intro" and self.cfg.intro is not None) or (kind == "outro" and self.cfg.outro is not None)
+
+    @staticmethod
+    def _mode_for(kind: str) -> Mode:
+        return {"intro": Mode.INTRO, "outro": Mode.OUTRO}.get(kind, Mode.FILLER)
+
+    def _is_last(self, cue: Cue) -> bool:
+        return bool(self.cues) and cue is self.cues[-1]
+
+    def _after(self, cue: Cue) -> str:
+        """The background that follows a cue: the outro after the last song."""
+        return "outro" if self._is_last(cue) and self.cfg.outro is not None else "filler"
+
+    def _wanted_background(self, saved_mode: str | None = None) -> str:
+        if self.live is not None:
+            return self._after(self.live.cue)
+        if saved_mode in BACKGROUND_KINDS and self._has_background(saved_mode):
+            return saved_mode
+        return "intro" if self.cfg.intro is not None else "filler"
 
     # ------------------------------------------------------------------ startup
 
@@ -233,14 +266,16 @@ class ShowController:
         for deck in self.cue_decks:
             if deck.up and (self.live is None or self.live.deck is not deck):
                 deck.unload()
-        self._restore_filler(infos.get(self.filler_deck.name))
+        self._restore_background(infos.get(self.filler_deck.name), (state or {}).get("mode"))
         if not continuing:
-            self.mode = Mode.FILLER
-            filler = self.filler_deck
-            if filler.state == DeckState.PLAYING and filler.adopted:
-                self._show_filler_now(0.0)  # it was on stage already: no new fade
-            elif filler.state in (DeckState.PLAYING, DeckState.READY):
-                self._show_filler_now(fade_in=self.cfg.transitions.fade_in)
+            # Fresh start: the intro if there is one (the first cue is preloaded
+            # meanwhile); after a restart: whatever background was on stage.
+            self.mode = self._mode_for(self.background_kind)
+            background = self.filler_deck
+            if background.state == DeckState.PLAYING and background.adopted:
+                self._show_background_now(0.0)  # it was on stage already: no new fade
+            elif background.state in (DeckState.PLAYING, DeckState.READY):
+                self._show_background_now(fade_in=self.cfg.transitions.fade_in)
             self._resume_after_restart(state)
         self._apply_stack()
         self._preload_next()
@@ -325,23 +360,49 @@ class ShowController:
         self.log.info("cue_resume", f"rejoining cue {cue.label} at its expected position after a restart", cue=cue.id)
         self._cold_start(free, cue, t0, clip_at_t0, "resume", resume=True)
 
-    def _restore_filler(self, info: dict[str, Any] | None) -> None:
+    def _restore_background(self, info: dict[str, Any] | None, saved_mode: str | None) -> None:
         deck = self.filler_deck
+        wanted = self._wanted_background(saved_mode)
         if not deck.up:
+            self.background_kind = wanted
             return
-        media, _loop = self._filler_media()
-        if info and info.get("path") == media and not info.get("eof"):
-            deck.assume(media, None, playing=not info.get("pause"))
-            return
-        self._load_filler()
+        if info and not info.get("eof"):
+            for kind in (wanted, *BACKGROUND_KINDS):
+                if self._has_background(kind) and info.get("path") == self._background_media(kind)[0]:
+                    deck.assume(info["path"], None, playing=not info.get("pause"))
+                    self.background_kind = kind
+                    return
+        self._load_background(wanted)
 
-    def _load_filler(self, force_color: bool = False) -> None:
+    def _load_background(self, kind: str, force_color: bool = False, paused: bool | None = None) -> Load | None:
         deck = self.filler_deck
+        self.background_kind = kind
         if not deck.up:
-            return
-        media, loop = self._filler_media(force_color)
-        # The filler keeps playing only while it is visible.
-        deck.load(media, start=0.0, paused=self.visible != deck.name and self.mode != Mode.FILLER, loop=loop)
+            return None
+        media, loop = self._background_media(kind, force_color)
+        if paused is None:
+            # The background only plays while it is on stage.
+            paused = self.visible != deck.name and not (self.live is None and self.mode in (Mode.STARTING, *BACKGROUND_MODES))
+        return deck.load(media, start=0.0, paused=paused, loop=loop)
+
+    async def _background_ready(self, timeout: float = 5.0) -> bool:
+        """Wait until the background deck has its current load ready (it may be
+        replaced by a fallback colour on the way)."""
+        deck = self.filler_deck
+        deadline = now() + timeout
+        while now() < deadline:
+            if deck.up and deck.state in (DeckState.PLAYING, DeckState.READY):
+                return True
+            load = deck.load_
+            if not deck.up or load is None:
+                return False
+            if not load.done.done():
+                await asyncio.wait({load.done}, timeout=max(0.0, deadline - now()))
+            elif deck.load_ is load:
+                return deck.state in (DeckState.PLAYING, DeckState.READY)
+            else:
+                await asyncio.sleep(0.01)  # a fallback load replaced it
+        return False
 
     # ------------------------------------------------------------------ stacking
 
@@ -507,6 +568,10 @@ class ShowController:
             self._retire(old_live)
         if was_visible == self.filler_deck.name:
             self.filler_deck.pause()
+        # Prepare, out of sight, the background that comes after this cue.
+        following = self._after(cue)
+        if following != self.background_kind or self.filler_deck.state == DeckState.FAILED:
+            self._load_background(following, paused=True)
         self._preload_next()
         self._save_state()
 
@@ -585,7 +650,7 @@ class ShowController:
         live.ended = True
         self.log.info("cue_end", f"cue {live.cue.id} reached its end ({live.cue.on_end})", cue=live.cue.id)
         if live.cue.on_end == "filler":
-            self.to_filler("end of clip")
+            self.to_background(self._after(live.cue), "end of clip")
         elif live.cue.on_end == "hold":
             self.mode = Mode.HOLD
         else:
@@ -594,29 +659,44 @@ class ShowController:
         self._save_state()
 
     def to_filler(self, reason: str, fade_out: bool = True, fade_in: bool = True) -> None:
-        if self.live is None and self.visible == self.filler_deck.name and self.mode == Mode.FILLER:
+        self.to_background("filler", reason, fade_out, fade_in)
+
+    def to_background(self, kind: str, reason: str, fade_out: bool = True, fade_in: bool = True) -> None:
+        """Fade whatever is on stage out and the intro, filler or outro in."""
+        if (
+            self.live is None
+            and self.visible == self.filler_deck.name
+            and self.mode == self._mode_for(kind)
+            and self.background_kind == kind
+        ):
             return
         self._cancel_transition()
         out = self.cfg.transitions.fade_out if fade_out else 0.0
         into = self.cfg.transitions.fade_in if fade_in else 0.0
-        self._transition = self._spawn_task(self._filler_transition(self.live, reason, out, into), "to-filler")
+        self._transition = self._spawn_task(self._background_transition(self.live, kind, reason, out, into), f"to-{kind}")
 
-    async def _filler_transition(self, live: Live | None, reason: str, fade_out: float, fade_in: float) -> None:
+    async def _background_transition(self, live: Live | None, kind: str, reason: str, fade_out: float, fade_in: float) -> None:
+        background = self.filler_deck
         if live is not None and live.deck.up and fade_out > 0 and self.visible == live.deck.name:
             # asyncio.wait: if the fade itself gets cancelled (deck died, unloaded),
             # carry on with the transition instead of aborting it.
             await asyncio.wait({live.deck.fade(1.0, fade_out)})
-        shown = self._show_filler_now(fade_in)
+        if self.background_kind != kind or background.state not in (DeckState.PLAYING, DeckState.READY):
+            if self.visible == background.name and background.up and fade_out > 0:
+                await asyncio.wait({background.fade(1.0, fade_out)})  # e.g. filler -> intro
+            self._load_background(kind, paused=False)
+            await self._background_ready()
+        shown = self._show_background_now(fade_in)
         if self.live is live:
             self.live = None
-        self.mode = Mode.FILLER
+        self.mode = self._mode_for(kind)
         if live is not None:
             self._retire(live)
-        self.log.info("filler", f"filler on stage ({reason})" if shown else f"black on stage, filler unavailable ({reason})")
+        self.log.info(kind, f"{kind} on stage ({reason})" if shown else f"black on stage, {kind} unavailable ({reason})")
         self._preload_next()
         self._save_state()
 
-    def _show_filler_now(self, fade_in: float = 0.0) -> bool:
+    def _show_background_now(self, fade_in: float = 0.0) -> bool:
         deck = self.filler_deck
         ok = deck.up and deck.state in (DeckState.PLAYING, DeckState.READY)
         if ok:
@@ -670,10 +750,13 @@ class ShowController:
             self.select(self.selected - 1, source)
         elif name == "black":
             self.set_blackout(arg, source)
-        elif name == "filler":
-            self.log.info("command", f"filler ({source})")
-            self._cancel_pending("filler requested")
-            self.to_filler(f"operator, {source}")
+        elif name in BACKGROUND_KINDS:
+            if not self._has_background(name):
+                self.log.warn("command", f"{name} ({source}): no {name} is configured")
+                return
+            self.log.info("command", f"{name} ({source})")
+            self._cancel_pending(f"{name} requested")
+            self.to_background(name, f"operator, {source}")
         elif name == "test":
             self.set_test_mode(not self.test_mode if arg is None else bool(arg))
         elif name == "quit":
@@ -745,7 +828,7 @@ class ShowController:
                 self.log.warn("osc", f"/cue: unknown cue {args[0] if args else '(missing)'}")
             else:
                 self.trigger(cue, t, f"osc /cue {cue.id}")
-        elif name in ("go", "next", "prev", "filler", "test"):
+        elif name in ("go", "next", "prev", "filler", "intro", "outro", "test"):
             if args and isinstance(args[0], (int, float)) and not isinstance(args[0], bool) and float(args[0]) < 0.5 and name != "test":
                 return  # button release from control surfaces
             self.command(name, source, bool(args[0]) if name == "test" and args else None)
@@ -777,11 +860,13 @@ class ShowController:
             self._load_lead = max(0.15, min(2.0, 0.7 * self._load_lead + 0.3 * (1.5 * load.load_time + 0.05)))
         if load.cue is not None:
             self._load_failures.pop(load.cue.id, None)
-        self.log.debug("deck_ready", f"deck {deck.name}: {load.cue.id if load.cue else 'filler'} ready in {(load.load_time or 0) * 1000:.0f} ms")
+        self.log.debug("deck_ready", f"deck {deck.name}: {load.cue.id if load.cue else self.background_kind} ready in {(load.load_time or 0) * 1000:.0f} ms")
         if deck is self.filler_deck:
-            if self.live is None and self.mode in (Mode.STARTING, Mode.FILLER) and self.visible != deck.name:
-                self.mode = Mode.FILLER
-                self._show_filler_now(self.cfg.transitions.fade_in)
+            if self._transition is not None and not self._transition.done():
+                return  # the running transition shows it
+            if self.live is None and self.mode in (Mode.STARTING, *BACKGROUND_MODES) and self.visible != deck.name:
+                self.mode = self._mode_for(self.background_kind)
+                self._show_background_now(self.cfg.transitions.fade_in)
             elif self.visible != deck.name:
                 deck.pause()
             return
@@ -796,12 +881,13 @@ class ShowController:
 
     def deck_failed(self, deck: Deck, load: Load, reason: str) -> None:
         if deck is self.filler_deck:
-            media, _ = self._filler_media()
+            kind = self.background_kind
+            media, _ = self._background_media(kind)
             if load.media == media and not media.startswith("av://"):
-                self.log.error("filler_failed", f"filler file failed ({reason}); using the filler colour")
-                self._load_filler(force_color=True)
+                self.log.error(f"{kind}_failed", f"{kind} file failed ({reason}); using the {kind} colour")
+                self._load_background(kind, force_color=True, paused=load.paused)
             else:
-                self.log.error("filler_failed", f"filler failed ({reason})")
+                self.log.error(f"{kind}_failed", f"{kind} failed ({reason})")
             return
         cue = load.cue
         cue_id = cue.id if cue else "?"
@@ -810,8 +896,9 @@ class ShowController:
             # The playing clip broke off (decoder/file error): the deck shows
             # black now, so bring the filler in from black.
             live.ended = True
-            self.log.error("cue_error", f"cue {cue_id} stopped with an error ({reason}); filler", cue=cue_id, reason=reason)
-            self.to_filler("playback error", fade_out=False)
+            following = self._after(live.cue)
+            self.log.error("cue_error", f"cue {cue_id} stopped with an error ({reason}); {following}", cue=cue_id, reason=reason)
+            self.to_background(following, "playback error", fade_out=False)
             return
         failures = self._load_failures.get(cue_id, 0) + 1
         self._load_failures[cue_id] = failures
@@ -840,12 +927,12 @@ class ShowController:
         live = self.live
         if live is not None and live.deck is deck:
             self.live = None
-            shown = self._show_filler_now()
-            self.mode = Mode.FILLER
+            shown = self._show_background_now()
+            self.mode = self._mode_for(self.background_kind)
             expected = self._expected_position(live, now())
             duration = deck.duration
             remaining = (duration - expected) if duration else None
-            self.log.error("cue_lost", f"cue {live.cue.id} lost at {expected:.2f} s; {'filler' if shown else 'black'} on stage", cue=live.cue.id)
+            self.log.error("cue_lost", f"cue {live.cue.id} lost at {expected:.2f} s; {self.background_kind if shown else 'black'} on stage", cue=live.cue.id)
             if self.cfg.sync.resume_after_crash and (remaining is None or remaining > 2.0):
                 other = self._free_cue_deck()
                 if other is not None:
@@ -935,7 +1022,7 @@ class ShowController:
                     self._blackout_osd.pop(deck.name, None)
                     self._apply_stack()
                     if deck is self.filler_deck:
-                        self._load_filler()
+                        self._load_background(self._wanted_background(self.mode.value))
                     else:
                         self._preload_next()
                     self.log.info("deck_recovered", f"deck {deck.name} is back", deck=deck.name, restarts=deck.restarts)
@@ -965,7 +1052,7 @@ class ShowController:
             return
         if deck.up and deck.ping_failures >= 3:
             if self.live is not None and self.live.deck is deck:
-                self._show_filler_now()
+                self._show_background_now()
             deck.kill("not responding")
 
     def _check_stall(self, t: float) -> None:
@@ -978,7 +1065,7 @@ class ShowController:
         last = max(deck.time_pos_t, live.went_live_at)
         if t - last > self.cfg.sync.stall_timeout:
             self.log.error("stall", f"deck {deck.name}: playback stalled for {t - last:.1f} s", deck=deck.name, cue=live.cue.id)
-            self._show_filler_now()
+            self._show_background_now()
             deck.kill("playback stalled")
 
     def _check_mtc_stop(self, t: float) -> None:
@@ -988,7 +1075,7 @@ class ShowController:
         if running != self._mtc_was_running:
             self.log.info("mtc", "MTC running" if running else "MTC stopped or lost")
             if not running and self.cfg.sync.mtc.on_stop == "filler" and self.live is not None and not self.live.ended:
-                self.to_filler("MTC stopped")
+                self.to_background(self._after(self.live.cue), "MTC stopped")
         self._mtc_was_running = running
 
     # ------------------------------------------------------------------ status

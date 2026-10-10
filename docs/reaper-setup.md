@@ -51,7 +51,7 @@ guide (2.3); each is the MIDI port name on its computer.
 |---|---|---|---|
 | Note-on, channel 16 | `VIDEO CUES` track | starting a cue (`midi_note`) | yes (recommended trigger) |
 | Program Change | `VIDEO CUES` track | starting a cue (`midi_program`) | alternative to notes |
-| Command notes | `VIDEO CUES` track | `go`, `next`, `prev`, `black`, `filler`, `test` (`midi.command_notes`) | optional |
+| Command notes | `VIDEO CUES` track | `go`, `next`, `prev`, `black`, `filler`, `intro`, `outro`, `test` (`midi.command_notes`) | optional |
 | MTC (quarter-frame and full-frame) | `MTC` track | drift reference (`sync.mtc`); the [xjadeo fallback](xjadeo-fallback.md) | recommended |
 | OSC `/play`, `/lastmarker/name` | REAPER OSC control surface | secondary trigger (`osc:` per cue) | optional |
 
@@ -315,8 +315,9 @@ to skip a clip's pre-roll, and a negative one when the note cannot move.
   otherwise every start of playback inside a song re-sends that song's Program
   Change and restarts its clip. Notes are simpler and recommended.
 - **Command notes** (`midi.command_notes`) use the same channel and must not
-  collide with cue notes. In the REAPER timeline, prefer `filler` (for example
-  to force the filler at an exact point at the end of a song). `black`
+  collide with cue notes. In the REAPER timeline, prefer `filler`, `intro` or
+  `outro` (for example to force the filler at an exact point at the end of a
+  song, or to start the outro after the last bow). `black`
   *toggles* blackout like the B key, so its effect depends on the current state.
   Do not put it on the timeline.
 

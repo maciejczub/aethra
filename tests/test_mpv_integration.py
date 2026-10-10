@@ -300,3 +300,33 @@ def test_bench_reports_counters(media, tmp_path):
     assert result.codec and result.size == "640x360"
     assert result.counters["frame-drop-count"] == 0
     assert "three.mp4" in format_results([result])
+
+
+def test_intro_filler_outro_sequence(media, tmp_path):
+    async def scenario():
+        cfg = show_config(
+            media, tmp_path,
+            intro={"mode": "color", "color": "#102030"},
+            outro={"mode": "color", "color": "#302010"},
+            cues=[CUES[0], CUES[1]],
+        )
+        ctl, decks, _ = make_controller(cfg, tmp_path, "it-intro")
+        f = decks["F"]
+        try:
+            await ctl.start(fresh=True)
+            assert await wait_for(lambda: ctl.mode == Mode.INTRO and ctl.visible == "F" and f.state == DeckState.PLAYING)
+            assert "0x102030" in f.load_.media
+            assert await wait_for(lambda: decks["A"].state == DeckState.READY and decks["A"].cue.id == "01")
+            ctl.on_midi(note(36), now())
+            assert ctl.mode == Mode.CUE
+            assert await wait_for(lambda: ctl.background_kind == "filler" and f.state == DeckState.READY)
+            assert await wait_for(lambda: ctl.mode == Mode.FILLER, timeout=6.0)
+            assert await wait_for(lambda: any(d.state == DeckState.READY and d.cue and d.cue.id == "02" for d in decks.values()))
+            ctl.on_midi(note(37), now())  # the last song
+            assert await wait_for(lambda: ctl.background_kind == "outro" and f.state == DeckState.READY)
+            assert "0x302010" in f.load_.media
+            assert await wait_for(lambda: ctl.mode == Mode.OUTRO and ctl.visible == "F", timeout=6.0)
+        finally:
+            await ctl.shutdown()
+
+    asyncio.run(scenario())

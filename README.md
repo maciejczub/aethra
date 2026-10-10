@@ -18,7 +18,9 @@ REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ 3
 - **Stays in sync.** While a clip plays, its position is compared with the
   trigger clock (or MIDI Time Code from REAPER) and gently corrected by tiny
   speed changes; a relocation is followed with one exact seek.
-- **Filler between songs**: solid colour, still image or video loop, with fades.
+- **Intro, filler between songs, outro**: solid colour, still image or video
+  loop each, with fades. The intro runs until the first song, the outro starts
+  after the last one, and both can be called at any time.
 - **Fails safe.** A broken file never reaches the stage. A crashed or hung
   player is replaced while the filler covers for it, and the song is rejoined at
   the right position. A black window owned by the controller sits under

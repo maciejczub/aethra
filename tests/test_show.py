@@ -641,3 +641,165 @@ def test_mtc_stop_does_not_override_hold(make_config):
         await ctl.shutdown()
 
     run(scenario())
+
+
+# ---------------------------------------------------------------- intro / outro
+
+def intro_outro_config(tmp_path):
+    (tmp_path / "intro.mp4").write_bytes(b"x")
+    (tmp_path / "outro.mp4").write_bytes(b"x")
+    return {
+        "intro": {"mode": "loop", "file": "intro.mp4"},
+        "outro": {"mode": "loop", "file": "outro.mp4"},
+        "midi": {"port": "*", "channel": 16, "command_notes": {"intro": 118, "outro": 119, "filler": 121}},
+    }
+
+
+def test_intro_plays_at_start_with_the_first_cue_preloaded(make_config, tmp_path):
+    async def scenario():
+        ctl, decks = build(make_config, intro_outro_config(tmp_path))
+        await ctl.start()
+        f = decks["F"]
+        assert f.loads()[-1][1].endswith("intro.mp4")
+        f.finish_load()
+        await asyncio.sleep(0.05)
+        assert ctl.mode == Mode.INTRO and ctl.visible == "F"
+        assert decks["A"].loads()[-1][1] == "01"  # first song ready
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_intro_until_the_first_trigger_then_filler_between_songs(make_config, tmp_path):
+    async def scenario():
+        ctl, decks = build(make_config, intro_outro_config(tmp_path))
+        await ctl.start()
+        f = decks["F"]
+        f.finish_load()
+        await preload_ready(decks)
+        ctl.on_midi(bytes([0x9F, 36, 100]), now())
+        assert ctl.mode == Mode.CUE and ctl.stage.top == "A"
+        # Out of sight, the background deck already loads what follows: the filler.
+        assert f.loads()[-1][1].endswith("one.mp4") is False and f.loads()[-1][3] is True
+        assert ctl.background_kind == "filler"
+        f.finish_load()
+        decks["A"].reach_eof()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.FILLER and ctl.visible == "F"
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_outro_follows_the_last_song(make_config, tmp_path):
+    async def scenario():
+        ctl, decks = build(make_config, intro_outro_config(tmp_path))
+        await ctl.start()
+        f = decks["F"]
+        f.finish_load()
+        await preload_ready(decks)
+        ctl.on_midi(bytes([0x9F, 38, 100]), now())  # the last cue (cold start)
+        b = ctl.pending.deck
+        b.finish_load()
+        await asyncio.sleep(0.6)
+        assert ctl.live.cue.id == "03"
+        assert ctl.background_kind == "outro" and f.loads()[-1][1].endswith("outro.mp4")
+        f.finish_load()
+        b.reach_eof()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.OUTRO and ctl.visible == "F"
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_intro_and_outro_commands_at_any_time(make_config, tmp_path):
+    async def scenario():
+        ctl, decks = build(make_config, intro_outro_config(tmp_path))
+        await ctl.start()
+        f = decks["F"]
+        f.finish_load()
+        await preload_ready(decks)
+        ctl.on_midi(bytes([0x9F, 36, 100]), now())
+        f.finish_load()  # filler prepared behind the song
+        ctl.on_midi(bytes([0x9F, 119, 1]), now())  # outro command note, mid-song
+        await asyncio.sleep(0.05)
+        assert f.loads()[-1][1].endswith("outro.mp4")
+        f.finish_load()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.OUTRO and ctl.visible == "F" and ctl.live is None
+        ctl.on_midi(bytes([0x9F, 118, 1]), now())  # back to the intro
+        await asyncio.sleep(0.05)
+        assert f.loads()[-1][1].endswith("intro.mp4")
+        f.finish_load()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.INTRO
+        ctl.command("filler", "test")
+        await asyncio.sleep(0.05)
+        f.finish_load()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.FILLER
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_without_intro_and_outro_nothing_changes(make_config):
+    async def scenario():
+        ctl, decks = build(make_config)
+        await started(ctl, decks)
+        assert ctl.mode == Mode.FILLER
+        ctl.command("intro", "test")
+        ctl.command("outro", "test")
+        assert ctl.mode == Mode.FILLER and ctl._transition is None
+        await preload_ready(decks)
+        ctl.on_midi(bytes([0x9F, 38, 100]), now())
+        b = ctl.pending.deck
+        b.finish_load()
+        await asyncio.sleep(0.6)
+        b.reach_eof()
+        await asyncio.sleep(0.1)
+        assert ctl.mode == Mode.FILLER  # no outro configured: filler after the last song
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_missing_intro_file_falls_back_to_its_colour(make_config, tmp_path):
+    async def scenario():
+        data = {"intro": {"mode": "loop", "file": "intro.mp4", "color": "#112233"}}
+        (tmp_path / "intro.mp4").write_bytes(b"x")
+        ctl, decks = build(make_config, data)
+        await ctl.start()
+        f = decks["F"]
+        f.finish_load(ok=False)
+        assert f.loads()[-1][1].startswith("av://lavfi:color=c=0x112233")
+        f.finish_load()
+        await asyncio.sleep(0.05)
+        assert ctl.mode == Mode.INTRO and ctl.visible == "F"
+        await ctl.shutdown()
+
+    run(scenario())
+
+
+def test_restart_keeps_the_intro(make_config, tmp_path):
+    store = StateStore(tmp_path / "state.json")
+    data = intro_outro_config(tmp_path)
+
+    async def first_run():
+        ctl, decks = build(make_config, data, state_store=store)
+        await ctl.start()
+        decks["F"].finish_load()
+        await asyncio.sleep(0.05)
+        await ctl.shutdown(quit_decks=False)
+
+    async def second_run():
+        ctl, decks = build(make_config, data, state_store=store)
+        decks["F"].adopt_info = {"path": str(tmp_path / "intro.mp4"), "pause": False, "eof": False}
+        await ctl.start()
+        assert ctl.mode == Mode.INTRO and ctl.background_kind == "intro" and ctl.visible == "F"
+        assert decks["F"].loads()[-1][1].endswith("intro.mp4")  # adopted, not reloaded
+        await ctl.shutdown()
+
+    run(first_run())
+    run(second_run())

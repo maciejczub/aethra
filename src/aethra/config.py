@@ -16,7 +16,7 @@ from typing import Any
 
 from aethra.keys import KeySpecError, parse_key_spec
 
-COMMANDS = ("go", "next", "prev", "black", "filler", "test", "quit")
+COMMANDS = ("go", "next", "prev", "black", "filler", "intro", "outro", "test", "quit")
 ON_END = ("filler", "hold", "black")
 FILLER_MODES = ("color", "image", "loop")
 MTC_ON_STOP = ("continue", "filler")
@@ -59,6 +59,8 @@ class MpvConfig:
 
 @dataclass(frozen=True)
 class FillerConfig:
+    """Background content: the filler between songs, and the optional intro/outro."""
+
     mode: str = "color"
     file: Path | None = None
     color: str = "#000000"
@@ -178,6 +180,8 @@ class Config:
     stage: StageConfig
     mpv: MpvConfig
     filler: FillerConfig
+    intro: FillerConfig | None
+    outro: FillerConfig | None
     transitions: TransitionConfig
     sync: SyncConfig
     midi: MidiConfig
@@ -338,6 +342,8 @@ def parse_config(data: Any, path: Path) -> Config:
     stage = _parse_stage(root.section("stage"))
     mpv = _parse_mpv(root.section("mpv"), base_dir)
     filler = _parse_filler(root.section("filler"), media_dir, warnings)
+    intro = _parse_filler(root.section("intro"), media_dir, warnings, "intro") if root.raw("intro") is not None else None
+    outro = _parse_filler(root.section("outro"), media_dir, warnings, "outro") if root.raw("outro") is not None else None
     transitions = _parse_transitions(root.section("transitions"))
     sync = _parse_sync(root.section("sync"))
     midi = _parse_midi(root.section("midi"))
@@ -357,6 +363,8 @@ def parse_config(data: Any, path: Path) -> Config:
         stage=stage,
         mpv=mpv,
         filler=filler,
+        intro=intro,
+        outro=outro,
         transitions=transitions,
         sync=sync,
         midi=midi,
@@ -406,19 +414,19 @@ def _parse_mpv(s: _Section, base_dir: Path) -> MpvConfig:
     return cfg
 
 
-def _parse_filler(s: _Section, media_dir: Path, warnings: list[str]) -> FillerConfig:
+def _parse_filler(s: _Section, media_dir: Path, warnings: list[str], section: str = "filler") -> FillerConfig:
     mode = s.get("mode", str, "color", choices=FILLER_MODES)
     color = s.get("color", str, "#000000")
     if not _COLOR_RE.match(color):
-        s.problems.append(f"filler.color: expected #RRGGBB, got {color!r}")
+        s.problems.append(f"{section}.color: expected #RRGGBB, got {color!r}")
         color = "#000000"
     file_raw = s.get("file", str, None, nullable=True)
     file = _resolve(media_dir, file_raw) if file_raw else None
     if mode in ("image", "loop"):
         if file is None:
-            s.problems.append(f"filler.file: required when filler.mode is {mode!r}")
+            s.problems.append(f"{section}.file: required when {section}.mode is {mode!r}")
         elif not file.is_file():
-            warnings.append(f"filler file not found: {file} (the filler colour will be used)")
+            warnings.append(f"{section} file not found: {file} (the {section} colour will be used)")
     s.finish()
     return FillerConfig(mode=mode, file=file, color=color)
 

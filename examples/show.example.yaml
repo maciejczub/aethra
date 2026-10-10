@@ -30,6 +30,15 @@ filler:                         # what is shown between songs
   file: filler-loop.mp4         # for image/loop; if it is missing or broken, the colour is used
   color: "#000000"
 
+# Optional: shown from the start until the first song (intro) and after the
+# last song (outro); same keys as filler. Remove the sections to do without.
+# intro:
+#   mode: loop
+#   file: intro-loop.mp4
+# outro:
+#   mode: image
+#   file: thank-you.png
+
 transitions:
   fade_out: 0.5                 # seconds: end of a song -> black
   fade_in: 0.5                  # seconds: black -> filler
@@ -60,6 +69,8 @@ midi:
   command_notes:                # optional: control notes on the same channel
     black: 120
     filler: 121
+    # intro: 118
+    # outro: 119
 
 osc:
   enabled: false
@@ -103,7 +114,7 @@ cues:
     file: 02-second.mp4
     midi_note: 37
     offset: 0.0
-    on_end: filler              # filler | hold (keep the last frame) | black
+    on_end: filler              # filler (outro after the last cue) | hold (keep the last frame) | black
   - id: "03"
     title: Ballad
     file: 03-ballad.mp4
