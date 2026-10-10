@@ -9,6 +9,11 @@ folder (or unzip the archive), put the clips into ``media``, edit
     python tools/build_windows_bundle.py --mpv-archive mpv-x86_64-20260101-git-abc.7z \
                                          --libmpv mpv-dev-x86_64-20260101-git-abc.7z
     python tools/build_windows_bundle.py            # without mpv (add it later to mpv/)
+    python tools/build_windows_bundle.py --download-mpv --installer   # the release: Aethra-<version>-setup.exe
+
+--download-mpv takes the pinned mpv build (mpv.exe and libmpv-2.dll of the
+same date, checked against SHA-256 sums). --installer also makes the Windows
+installer with NSIS (makensis; docker/build.compose.yaml provides it).
 
 The compositor engine (the default) needs libmpv-2.dll next to mpv.exe: take
 it from the "mpv-dev" archive of the same mpv build. Without it the show runs
@@ -69,6 +74,30 @@ GLFW_WHEELS = {
         "15fd0666cd8f1b0ecb535c3abb712b8ddda053bf8d16de2353b1c6ced0e65402",
     ),
 }
+
+
+# mpv for Windows (shinchiro builds, GitHub releases): player and libmpv of the same build.
+MPV_BUILD = "20261010"
+MPV_ARCHIVES = {
+    "mpv": ("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261010/mpv-x86_64-20261010-git-b2c255c13e.7z",
+            "70a568c046a10f0b365319c4ec5382d8fb37f509615944b7e9932b66e5ccfb25"),
+    "dev": ("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261010/mpv-dev-x86_64-20261010-git-b2c255c13e.7z",
+            "394490ed6354c2294b87c63dfa3663b23524b5551aace9cbe35c4085682b14fa"),
+}
+
+THIRD_PARTY = """Aethra is MIT-licensed (LICENSE.txt). This package also contains:
+
+* Python {python} (embeddable distribution) - PSF License Agreement.
+  https://www.python.org/
+* PyYAML 6.0.3 - MIT License. https://pyyaml.org/
+* pyGLFW 2.10.2 with GLFW 3.4 (glfw3.dll) - MIT and zlib/libpng licenses.
+  https://github.com/FlorianRhiem/pyGLFW, https://www.glfw.org/
+* mpv and libmpv (mpv/), Windows build {mpv_build} by shinchiro, with FFmpeg and
+  further libraries linked in - GPL version 2 or later (see mpv/doc and the
+  build's documentation). Sources: https://github.com/mpv-player/mpv,
+  https://github.com/shinchiro/mpv-winbuild-cmake (build scripts and the
+  versions of every library), https://ffmpeg.org/
+"""
 
 
 def sha256(path: Path) -> str:
@@ -184,6 +213,13 @@ def build(args: argparse.Namespace) -> Path:
 
     # 4. mpv
     mpv_dir = out / "mpv"
+    if args.download_mpv:
+        if arch != "amd64":
+            raise SystemExit("--download-mpv: only amd64 builds are pinned")
+        url, digest = MPV_ARCHIVES["mpv"]
+        args.mpv_archive = str(download(url, cache / url.rsplit("/", 1)[1], digest))
+        url, digest = MPV_ARCHIVES["dev"]
+        args.libmpv = str(download(url, cache / url.rsplit("/", 1)[1], digest))
     if args.mpv_dir:
         src = Path(args.mpv_dir)
         if not (src / "mpv.exe").is_file():
@@ -235,6 +271,7 @@ def build(args: argparse.Namespace) -> Path:
         (out / "show.yaml").write_bytes(saved)
     else:
         write_crlf(out / "show.yaml", (ROOT / "examples" / "show.example.yaml").read_text())
+    write_crlf(out / "show.example.yaml", (ROOT / "examples" / "show.example.yaml").read_text())
     for name in ("media", "logs"):
         if (kept / name).is_dir():
             shutil.move(str(kept / name), out / name)
@@ -249,6 +286,7 @@ def build(args: argparse.Namespace) -> Path:
     match = re.search(r'__version__ = "([^"]+)"', (ROOT / "src" / "aethra" / "__init__.py").read_text())
     version = match.group(1) if match else "unknown"
     (out / "VERSION.txt").write_text(f"Aethra {version}\nPython {PYTHON_VERSION} ({arch})\n")
+    write_crlf(out / "THIRD-PARTY.txt", THIRD_PARTY.format(python=PYTHON_VERSION, mpv_build=MPV_BUILD if args.download_mpv else "(as supplied)"))
 
     if args.zip:
         archive = out.parent / f"Aethra-{version}-win-{arch}.zip"
@@ -258,6 +296,14 @@ def build(args: argparse.Namespace) -> Path:
             for path in sorted(out.rglob("*")):
                 z.write(path, Path("Aethra") / path.relative_to(out))
         print(f"archive: {archive}")
+    if args.installer:
+        makensis = shutil.which("makensis")
+        if makensis is None:
+            raise SystemExit("--installer needs NSIS (makensis): docker compose -f docker/build.compose.yaml run --rm build")
+        setup = out.parent / f"Aethra-{version}-setup.exe"
+        subprocess.run([makensis, "-V2", f"-DVERSION={version}", f"-DSOURCE={out}", f"-DOUTFILE={setup}",
+                        str(ROOT / "tools" / "installer" / "aethra.nsi")], check=True)
+        print(f"installer: {setup} ({setup.stat().st_size / 1e6:.0f} MB)")
     print(f"bundle:  {out}")
     return out
 
@@ -269,6 +315,8 @@ def main() -> int:
     parser.add_argument("--mpv-dir", help="folder that contains mpv.exe")
     parser.add_argument("--mpv-archive", help="mpv Windows build archive (.7z needs 7-Zip or bsdtar, or .zip)")
     parser.add_argument("--libmpv", help="libmpv-2.dll, or the mpv-dev archive of the same mpv build")
+    parser.add_argument("--download-mpv", action="store_true", help=f"use the pinned mpv build {MPV_BUILD} (mpv and libmpv)")
+    parser.add_argument("--installer", action="store_true", help="also build dist/Aethra-<version>-setup.exe (needs makensis)")
     parser.add_argument("--zip", action="store_true", help="also create dist/Aethra-<version>-win-<arch>.zip")
     parser.add_argument("--reset-config", action="store_true", help="replace an existing show.yaml with the example")
     build(parser.parse_args())

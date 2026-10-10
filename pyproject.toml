@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aethra"
-version = "0.1.0"
+version = "0.2.0a1"
 description = "Reliability-first stage video player: mpv playback cued by MIDI/OSC from a DAW, with filler between songs."
 readme = "README.md"
 license = "MIT"

@@ -1,0 +1,23 @@
+# Release build (development only). From the repository root:
+#   docker compose -f docker/build.compose.yaml run --rm build
+# creates dist/Aethra/ and dist/Aethra-<version>-setup.exe (downloads Python,
+# wheels and the pinned mpv build once, checked against SHA-256 sums, cached in
+# dist/cache). The image is disposable: docker rmi aethra-build-runner:tmp
+name: aethra-build
+
+services:
+  build:
+    build:
+      context: .
+      dockerfile: build.Dockerfile
+      labels:
+        disposable: "true"
+    image: aethra-build-runner:tmp
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ..:/src
+    working_dir: /src
+    environment:
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: ["python", "tools/build_windows_bundle.py", "--download-mpv", "--installer", "--reset-config"]

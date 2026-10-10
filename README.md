@@ -63,11 +63,23 @@ dependencies: Python ≥ 3.11, PyYAML and glfw; the Windows bundle includes them
 
 ## Getting started on the show laptop
 
+**With the installer** (`Aethra-<version>-setup.exe` from the releases): run it
+on the laptop — no administrator rights, no internet needed. It installs into
+your user folder (`%USERPROFILE%\Aethra` by default) with the shortcuts
+*Aethra* (the show) and *Aethra panel* (the control panel); put the clips into
+`media\` and continue with step 3 (or do everything in the panel). Updating
+keeps `show.yaml`, `media\` and `logs\`; uninstalling leaves them too.
+
+**Without the installer:**
+
 1. Build the bundle (on any computer with Python and internet access):
 
    ```bash
    python tools/build_windows_bundle.py --mpv-dir path/to/mpv --libmpv path/to/libmpv-2.dll --zip
    ```
+
+   The release build (bundle and installer, on Linux in a container):
+   `docker compose -f docker/build.compose.yaml run --rm build`.
 
    This creates `dist/Aethra/` (and a zip): embeddable Python, PyYAML, glfw,
    Aethra, mpv with libmpv, the launcher and the docs. Windows mpv builds:
