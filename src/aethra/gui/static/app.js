@@ -122,7 +122,7 @@ const SECTIONS = {
   ] },
   stage: { title: "Stage output", fields: [
     { k: "engine", t: "select", opts: ENGINES, def: "compositor", label: "Display engine", help: "compositor: one window, all transitions on the GPU. windows: one mpv window per deck, transitions dip through black." },
-    { k: "screen", t: "monitor", label: "Stage screen", nullable: true, help: "Leave empty: the first screen that is not the main display." },
+    { k: "screen", t: "monitor", label: "Stage screen", nullable: true, help: "Automatic: the projector connected as the second (extended) screen; until it is connected the show waits instead of covering this screen. Choose the main display only to play without a projector (the video then covers the panel)." },
     { k: "screen_name", t: "text", label: "Screen name", nullable: true, help: "Instead of the index, e.g. \\\\.\\DISPLAY2." },
     { k: "width", t: "int", def: 1920, min: 16, label: "Width" },
     { k: "height", t: "int", def: 1080, min: 16, label: "Height" },
@@ -247,7 +247,7 @@ function fieldControl(f, value, onChange) {
     }
     case "monitor": {
       input = h("select");
-      input.append(h("option", { value: "" }, "automatic (first screen that is not the main display)"));
+      input.append(h("option", { value: "" }, "automatic: the screen that is not the main display (waits for it)"));
       for (const m of (S.devices && S.devices.monitors) || []) input.append(h("option", { value: String(m.index) }, `#${m.index} ${m.name} ${m.width}×${m.height}${m.primary ? " (main)" : ""}`));
       if (value != null && ![...input.options].some((o) => o.value === String(value))) input.append(h("option", { value: String(value) }, `#${value} (not connected)`));
       input.value = value == null ? "" : String(value);
@@ -474,7 +474,9 @@ function pageLive() {
       h("button", { disabled: !running || !S.data.intro, onclick: cmd("intro") }, "Intro"),
       h("button", { disabled: !running || !S.data.outro, onclick: cmd("outro") }, "Outro"),
       h("button", { class: st.test_mode ? "on" : "", disabled: !running, onclick: cmd("test", [st.test_mode ? 0 : 1]) }, "Test overlay")),
-    (S.data.osc || {}).enabled ? null : h("p", { class: "muted" }, "⚠ OSC is off in the show file: the panel cannot control the running show. Turn it on in MIDI · OSC · keys."));
+    (S.data.osc || {}).enabled ? null : h("p", { class: "muted" }, "⚠ OSC is off in the show file: the panel cannot control the running show. Turn it on in MIDI · OSC · keys."),
+    running ? h("p", { class: "muted" }, "Keys: while this window has the focus, the show keys (Space = GO, arrows, B, F …) work here — except while you type in a field, which is safe. Outside the panel they work as global hotkeys.") : null,
+    st.mode === "waiting for the stage screen" ? h("p", { style: { color: "var(--warn)" } }, "⚠ The show is waiting for the stage screen: connect the projector (Windows: Extend, Win+P), or stop and choose a screen in Stage & players.") : null);
 
   const setlist = h("div", { class: "card" }, h("h2", {}, "Set list"), h("div", { class: "setlist" },
     cues.map((c, i) => h("div", { class: "item" + (live && live.cue === c.id && !live.ended ? " live" : st.next === c.id ? " next" : ""),
@@ -658,10 +660,12 @@ function previewBox(type, duration) {
   const tint = h("div", { class: "b", style: { opacity: 0 } });
   const box = h("div", { class: "preview" }, a, b, tint);
   const dur = Math.max(0.6, duration || 1) * 1000;
+  // During the show the previews stand still (no load next to the show).
+  const still = !!S.status.running;
   let start = performance.now();
   function frame(now) {
     if (!box.isConnected) return;
-    let p = ((now - start) % (dur + 1400)) / dur;
+    let p = still ? 0.5 : ((now - start) % (dur + 1400)) / dur;
     p = Math.min(1, p);
     const e = p * p * (3 - 2 * p);
     b.style.mixBlendMode = "normal"; tint.style.opacity = 0; b.style.opacity = 0;
@@ -676,7 +680,7 @@ function previewBox(type, duration) {
       b.style.opacity = e < 0.5 ? 2 * e : 1;
       if (e >= 0.5) { tint.style.background = b.style.background; tint.style.opacity = 2 * e - 1; }
     }
-    requestAnimationFrame(frame);
+    if (!still) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
   return box;
@@ -785,6 +789,7 @@ async function refreshMedia() {
 }
 
 async function probeAll() {
+  if (S.status.running && !confirm("The show is running. Reading the clips opens each file with mpv and loads the processor for a while. Continue?")) return;
   S.media = await api.post("/api/probe", { data: S.data, files: S.media.files.map((f) => f.name) });
   render();
   const poll = setInterval(async () => {
@@ -822,6 +827,11 @@ function jobConsole(kind, label, optionsFn, opts = {}) {
   let current = null;
   runBtn.onclick = async () => {
     if (opts.needsSave && dirty() && !confirm("There are unsaved changes; the tool reads the file on disk. Run anyway?")) return;
+    const during = typeof opts.duringShow === "function" ? opts.duringShow() : opts.duringShow;
+    if (during && S.status.running) {
+      if (during.block) { toast(during.block, "bad"); return; }
+      if (during.warn && !confirm("The show is running. " + during.warn + "\n\nRun anyway?")) return;
+    }
     if (opts.confirm && !confirm(opts.confirm)) return;
     const options = optionsFn ? optionsFn() : {};
     if (options === null) return;
@@ -856,8 +866,10 @@ function pageChecks() {
   const maxClip = h("input", { type: "number", placeholder: "whole clip", min: 1, style: { width: "110px" } });
   const tabs = [
     { id: "check", title: "Check", desc: "Configuration, every media file, the MIDI port and the stage screen. Must end with OK before a show.", job: jobConsole("check", "Run check", null, { needsSave: true }) },
-    { id: "verify", title: "Verify media", desc: "Decodes the clips to find damaged files. Quick: start and end of every clip; full: every frame (do it once after copying new media).", job: jobConsole("verify", "Verify", () => ({ quick: quick.checked }), { needsSave: true, extra: h("label", { class: "row" }, quick, "quick") }) },
-    { id: "selftest", title: "Self-test", desc: "Measures this computer: IPC round trip, timer accuracy, playback rate, hotkeys; with stage windows: window stacking and the compositor (shows test pictures on the stage screen).", job: jobConsole("selftest", "Run self-test", () => ({ windows: winsel.checked }), { extra: h("label", { class: "row" }, winsel, "test on the stage screen") }) },
+    { id: "verify", title: "Verify media", desc: "Decodes the clips to find damaged files. Quick: start and end of every clip; full: every frame (do it once after copying new media).", job: jobConsole("verify", "Verify", () => ({ quick: quick.checked }), { needsSave: true, extra: h("label", { class: "row" }, quick, "quick"),
+      duringShow: () => ({ warn: quick.checked ? "Verifying loads the processor for a while." : "A full verify decodes every clip as fast as the processor can: the show may drop frames meanwhile." }) }) },
+    { id: "selftest", title: "Self-test", desc: "Measures this computer: IPC round trip, timer accuracy, playback rate, hotkeys; with stage windows: window stacking and the compositor (shows test pictures on the stage screen).", job: jobConsole("selftest", "Run self-test", () => ({ windows: winsel.checked }), { extra: h("label", { class: "row" }, winsel, "test on the stage screen"),
+      duringShow: () => winsel.checked ? { block: "The show is running: the test on the stage screen would put test pictures over the show. Untick it or stop the show." } : { warn: "The self-test plays a test video for a few seconds." } }) },
     { id: "rehearse", title: "Rehearsal", desc: "Plays the whole set over OSC without REAPER (test 1: the set twice without a restart). Start the show first (Live page) with OSC enabled.", job: jobConsole("rehearse", "Run rehearsal", () => ({ loops: Number(loops.value), gap: Number(gap.value), max_clip: maxClip.value ? Number(maxClip.value) : null }),
       { extra: h("span", { class: "row" }, "passes", loops, "gap (s)", gap, "max per clip (s)", maxClip) }) },
     { id: "monitor", title: "MIDI / OSC monitor", desc: "Shows incoming MIDI notes, MTC and OSC messages (no video). Stop the show first: it holds the MIDI input.", job: jobConsole("monitor", "Start monitor", null, { height: "460px" }) },
@@ -901,11 +913,12 @@ function pageCodec() {
   const bench = jobConsole("bench", "Run benchmark", () => {
     if (!chosen.size) { toast("Select at least one file", "bad"); return null; }
     return { files: [...chosen], seconds: Number(seconds.value), hwdec: modeBoxes.map((l) => l.querySelector("input")).filter((x) => x.checked).map((x) => x.dataset.mode) };
-  }, { needsSave: true, height: "300px" });
+  }, { needsSave: true, height: "300px", duringShow: { block: "The show is running: the benchmark plays the files full screen on the stage screen. Stop the show first." } });
   const what = h("select", {}, ["codecs", "sync", "demo"].map((x) => h("option", {}, x)));
   const ffmpeg = h("input", { type: "text", placeholder: "ffmpeg on PATH" });
   const clipSecs = h("input", { type: "number", value: 60, style: { width: "80px" } });
-  const make = jobConsole("make_clips", "Generate", () => ({ what: what.value, ffmpeg: ffmpeg.value || null, seconds: Number(clipSecs.value), out: what.value === "demo" ? "media" : "test-clips" }), { primary: false, height: "180px" });
+  const make = jobConsole("make_clips", "Generate", () => ({ what: what.value, ffmpeg: ffmpeg.value || null, seconds: Number(clipSecs.value), out: what.value === "demo" ? "media" : "test-clips" }), { primary: false, height: "180px",
+    duringShow: { warn: "Encoding test clips keeps the processor fully busy for minutes: the show will probably drop frames." } });
   return h("div", {}, h("h1", {}, "Codec choice"),
     h("p", { class: "lead" }, "Plays each file full screen on the stage output like a real deck and counts dropped frames and CPU load, with hardware and software decoding. The right codec has zero dropped frames and the lowest CPU load (docs/codec-selection.md). Use the stage display at its show refresh rate (50 Hz for 25 fps)."),
     h("div", { class: "cards" },
@@ -925,9 +938,10 @@ function pageWindows() {
   const osc = h("input", { type: "number", value: ((S.data || {}).osc || {}).port || 9000, style: { width: "90px" } });
   const opts = (mode, elevated = false) => () => ({ mode, scope: scope.value, battery: battery.checked, high_performance: hp.checked, fast_startup: fast.checked, osc_port: Number(osc.value), elevated });
   const check = jobConsole("windows", "Check settings (dry run)", opts("check"), { height: "460px" });
-  const apply = jobConsole("windows", "Apply", opts("apply"), { primary: false, confirm: "Change the Windows settings listed by the check? Previous values are saved and can be reverted.", height: "320px" });
-  const elevated = jobConsole("windows", "Apply as administrator…", opts("apply", true), { primary: false, confirm: "An administrator prompt opens in its own window. Continue?", height: "120px" });
-  const revert = jobConsole("windows", "Revert all changes", () => ({ mode: "revert" }), { primary: false, confirm: "Restore the values saved by earlier Apply runs?", height: "200px" });
+  const duringShow = { warn: "Changing power and notification settings now is possible but better done before the show." };
+  const apply = jobConsole("windows", "Apply", opts("apply"), { primary: false, confirm: "Change the Windows settings listed by the check? Previous values are saved and can be reverted.", height: "320px", duringShow });
+  const elevated = jobConsole("windows", "Apply as administrator…", opts("apply", true), { primary: false, confirm: "An administrator prompt opens in its own window. Continue?", height: "120px", duringShow });
+  const revert = jobConsole("windows", "Revert all changes", () => ({ mode: "revert" }), { primary: false, confirm: "Restore the values saved by earlier Apply runs?", height: "200px", duringShow });
   const autostart = h("input", { type: "checkbox" });
   const delay = h("input", { type: "number", value: 20, style: { width: "70px" } });
   const shortcuts = jobConsole("shortcuts", "Create shortcuts", () => ({ autostart: autostart.checked, delay: Number(delay.value) }), { primary: false, height: "120px" });
@@ -1002,6 +1016,76 @@ function openDialog() {
   browse(async (p) => loadConfig(await api.post("/api/open", { path: p })), [".yaml", ".yml", ".json"], S.path);
 }
 
+// ---------------------------------------------------------------- show keys inside the panel
+
+const KEY_ALIASES = { esc: "escape", return: "enter", pgup: "pageup", pgdn: "pagedown", pgdown: "pagedown", ins: "insert", del: "delete", bs: "backspace" };
+const MOD_ALIASES = { control: "ctrl", meta: "win", super: "win", cmd: "win" };
+const MOD_ORDER = ["ctrl", "alt", "shift", "win"];
+const NAMED_KEYS = { " ": "space", ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Escape: "escape", Enter: "enter",
+  Tab: "tab", Backspace: "backspace", PageUp: "pageup", PageDown: "pagedown", Home: "home", End: "end", Insert: "insert", Delete: "delete" };
+
+function canonicalSpec(spec) {
+  const parts = String(spec).toLowerCase().split("+").map((x) => x.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  let key = parts.pop();
+  key = KEY_ALIASES[key] || key;
+  const mods = new Set(parts.map((m) => MOD_ALIASES[m] || m));
+  return [...MOD_ORDER.filter((m) => mods.has(m)), key].join("+");
+}
+
+function eventSpec(e) {
+  let key = NAMED_KEYS[e.key];
+  if (!key) {
+    if (/^F\d{1,2}$/.test(e.key)) key = e.key.toLowerCase();
+    else if (/^Numpad\d$/.test(e.code)) key = "numpad" + e.code.slice(6);
+    else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
+    else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+    else return null;
+  }
+  const mods = [];
+  if (e.ctrlKey) mods.push("ctrl");
+  if (e.altKey) mods.push("alt");
+  if (e.shiftKey) mods.push("shift");
+  if (e.metaKey) mods.push("win");
+  return [...mods, key].join("+");
+}
+
+function showKeymap() {
+  // The keys of the file the show was started with (on disk), like its hotkeys.
+  let saved = {};
+  try { saved = JSON.parse(S.savedJson || "{}") || {}; } catch (err) { saved = {}; }
+  const keys = { ...(S.meta.default_keys || {}), ...((saved.keyboard || {}).keys || {}) };
+  const map = {};
+  for (const [cmd, specs] of Object.entries(keys)) for (const sp of [].concat(specs || [])) { const c = canonicalSpec(sp); if (c) map[c] = cmd; }
+  return map;
+}
+
+function onShowKey(e) {
+  if (!S.status.running || S.status.mode === "waiting for the stage screen" || e.repeat) return;
+  if (!document.getElementById("modal").classList.contains("hidden")) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;  // typing is safe
+  const spec = eventSpec(e);
+  const command = spec && showKeymap()[spec];
+  if (!command) return;
+  e.preventDefault();
+  api.post("/api/show/command", { data: S.data, name: command }).then((r) => {
+    if (r.error) toast(r.error, "bad"); else { toast(`${command} (${spec})`); setTimeout(pollStatus, 150); }
+  });
+}
+
+// The show releases its global hotkeys for typing while the panel has the
+// focus; the panel renews that every second and says when it loses the focus.
+let focusReported = null;
+function reportFocus(changedNow) {
+  if (!S.status.running) { focusReported = null; return; }
+  const focused = document.hasFocus();
+  if (focused || focusReported !== focused || changedNow) {
+    api.post("/api/focus", { data: S.data, focused });
+    focusReported = focused;
+  }
+}
+
 // ---------------------------------------------------------------- status polling and start-up
 
 async function pollStatus() {
@@ -1012,6 +1096,7 @@ async function pollStatus() {
   side.innerHTML = "";
   side.append(st.running ? h("span", { class: "badge live" }, "● ON AIR") : h("span", { class: "badge" }, "show stopped"));
   if (st.running && st.live) side.append(h("div", { style: { marginTop: "6px" } }, `${st.live.cue} ${fmtTime(st.live.position)}`));
+  reportFocus(false);
   if (S.page === "live" && JSON.stringify(st) !== before) {
     // Keep focus and scroll: re-render only when something changed.
     render();
@@ -1025,6 +1110,9 @@ async function init() {
   document.getElementById("btn-revert").onclick = () => { if (confirm("Discard all unsaved changes?")) { S.data = JSON.parse(S.savedJson); changed(true); } };
   document.getElementById("btn-open").onclick = openDialog;
   document.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save(); } });
+  document.addEventListener("keydown", onShowKey);
+  window.addEventListener("focus", () => reportFocus(true));
+  window.addEventListener("blur", () => reportFocus(true));
   window.addEventListener("beforeunload", (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
   const hash = location.hash.slice(1);
   if (PAGES.some((p) => p.id === hash)) S.page = hash;

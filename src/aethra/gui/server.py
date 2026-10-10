@@ -391,8 +391,9 @@ class Panel:
         extra = (["--test-mode"] if test_mode else []) + (["--fresh"] if fresh else [])
         launcher = install_root() / "Aethra.cmd"
         if IS_WINDOWS and launcher.is_file():
-            # The normal launcher (restart loop) in its own console window.
-            cmd = f'start "Aethra" /D "{install_root()}" cmd /c ""{launcher}" "{self.config}" {" ".join(extra)}"'
+            # The normal launcher (restart loop) in its own console window,
+            # minimised: the panel keeps the focus (and shows the same status).
+            cmd = f'start "Aethra" /MIN /D "{install_root()}" cmd /c ""{launcher}" "{self.config}" {" ".join(extra)}"'
             subprocess.Popen(cmd, shell=True, cwd=str(install_root()), env=child_env(),
                              creationflags=subprocess.CREATE_NO_WINDOW)
         else:
@@ -419,11 +420,25 @@ class Panel:
         return {"sent": prefix + address}
 
     def stop_show(self, data: Any) -> dict[str, Any]:
+        status = self.show_status()
+        if status.get("running") and status.get("mode") == "waiting for the stage screen":
+            # Nothing listens to OSC yet: the waiting show looks for this file.
+            (runtime_dir() / f"{self.instance}-stop-request").write_text("stop", encoding="ascii")
+            return {"sent": "stop request"}
         first = self.osc(data, "/quit")
         if "error" in first:
             return first
         time.sleep(0.2)
         return self.osc(data, "/quit")
+
+    def panel_focus(self, data: Any, focused: bool) -> dict[str, Any]:
+        """Tell the running show whether the panel has the keyboard (see keyboard.PanelFocus)."""
+        if not self.show_status().get("running"):
+            return {"running": False}
+        try:
+            return self.osc(data, "/panel", 1 if focused else 0)
+        except OSError as exc:
+            return {"error": str(exc)}
 
     # -- logs ------------------------------------------------------------------
 
@@ -451,14 +466,22 @@ class Panel:
         levels = {"debug": 0, "info": 1, "warn": 2, "warning": 2, "error": 3}
         floor = levels.get(level, 1)
         events = []
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                try:
-                    rec = json.loads(line)
-                except ValueError:
-                    continue
-                if levels.get(str(rec.get("level")), 1) >= floor:
-                    events.append({"wall": rec.get("wall"), "event": rec.get("event"), "level": rec.get("level"), "msg": rec.get("msg")})
+        with open(path, "rb") as raw:
+            # Only the end of a long log (the live view asks every few seconds).
+            size = raw.seek(0, 2)
+            tail = 400_000 if limit <= 400 else 8_000_000
+            raw.seek(max(0, size - tail))
+            text = raw.read().decode("utf-8", "replace")
+        lines = text.splitlines()
+        if size > tail and lines:
+            lines = lines[1:]  # probably cut in half
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if levels.get(str(rec.get("level")), 1) >= floor:
+                events.append({"wall": rec.get("wall"), "event": rec.get("event"), "level": rec.get("level"), "msg": rec.get("msg")})
         return {"name": path.name, "events": events[-limit:]}
 
     def report(self, data: Any, name: str) -> str:
@@ -473,6 +496,9 @@ class Panel:
     # -- jobs ------------------------------------------------------------------
 
     def start_job(self, kind: str, options: dict[str, Any]) -> Job:
+        stage_tools = kind == "bench" or (kind == "selftest" and options.get("windows"))
+        if stage_tools and self.show_status().get("running") and not options.get("force"):
+            raise ValueError("the show is running: this tool puts test pictures on the stage screen. Stop the show first.")
         py = [python_console(), "-X", "utf8", "-m", "aethra"]
         config = str(self.config)
         cwd = self.config.parent
@@ -693,6 +719,8 @@ class Handler(BaseHTTPRequestHandler):
             return p.media(data)
         if path == "/api/devices":
             return p.devices(str(body.get("backend", "auto")))
+        if path == "/api/focus":
+            return p.panel_focus(data, bool(body.get("focused")))
         if path == "/api/learn":
             return p.learn_note(data, float(body.get("seconds", 10)))
         if path == "/api/show/start":

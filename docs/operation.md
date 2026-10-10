@@ -56,8 +56,10 @@ Above it, every event is printed with its time; the same events go to
 ## Keys
 
 The keys work whatever window has the focus (global hotkeys). While Aethra
-runs they are reserved for it: typing a space or a `b` in another program will
-not work.
+runs they are reserved for it: a space or a `b` typed in another program runs
+the command instead (Space = GO!). The control panel is the exception: while
+it has the focus you can type in it safely, and outside its input fields the
+same keys work there too ([control-panel.md](control-panel.md)).
 
 | Key | Action |
 |---|---|

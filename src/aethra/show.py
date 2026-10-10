@@ -158,6 +158,7 @@ class ShowController:
         self.stopping = False
         self.stop_event = asyncio.Event()
         self.on_status: Callable[[str], None] | None = None
+        self.on_panel_focus: Callable[[bool], None] | None = None
         self._transition: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
         self._respawning: set[str] = set()
@@ -930,6 +931,10 @@ class ShowController:
             self.command("black", source, on)
         elif name == "select" and args and isinstance(args[0], (int, float)) and not isinstance(args[0], bool):
             self.select(int(args[0]) - 1, source)  # 1-based, like /cue
+        elif name == "panel" and addr[0] in ("127.0.0.1", "::1"):
+            # The control panel on this computer has (1) or lost (0) the keyboard.
+            if self.on_panel_focus is not None:
+                self.on_panel_focus(bool(args) and isinstance(args[0], (int, float)) and float(args[0]) >= 0.5)
         elif name == "quit" and addr[0] in ("127.0.0.1", "::1"):
             # The control panel on this computer; like the key, it needs two
             # messages within 3 s.

@@ -26,6 +26,7 @@ from aethra.osc import start_osc_server
 from aethra.picture import CompositorPicture, Picture
 from aethra.platform import IS_WINDOWS, ProcessSetup, SingleInstance, ipc_address, on_console_close, runtime_dir
 from aethra.show import ShowController, StateStore
+from aethra.keyboard import PanelFocus
 from aethra.stage import (
     CompositorError,
     CompositorStage,
@@ -33,8 +34,8 @@ from aethra.stage import (
     OntopStage,
     Stage,
     Win32Stage,
-    choose_monitor,
     list_monitors,
+    stage_monitor,
 )
 
 EXIT_OK = 0
@@ -101,33 +102,51 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
     stage: Stage
     compositor: CompositorStage | None = None
     rect = (0, 0, cfg.stage.width, cfg.stage.height)
+    auto_screen = cfg.stage.screen is None and not cfg.stage.screen_name
+    status_file = runtime_dir() / f"{opts.instance}-status.json"
     if opts.headless:
         stage = NullStage()
     elif IS_WINDOWS:
         monitors = list_monitors()
         for m in monitors:
             log.info("monitor", str(m))
-        chosen = choose_monitor(cfg.stage, monitors)
+        chosen = stage_monitor(cfg.stage, monitors)
         if chosen is None:
-            # An explicitly configured stage screen is missing (projector not
-            # connected yet): wait for it rather than covering the operator's screen.
-            log.error("monitor", "the configured stage screen is not connected; waiting for it (Ctrl+C to give up)")
+            # The projector is not connected (or not detected) yet: wait for it
+            # rather than covering the operator's screen with the video.
+            if auto_screen:
+                log.error("monitor", "no second screen (projector) found; waiting for it. To play on the main display, set stage.screen: 0 (Ctrl+C to give up)")
+            else:
+                log.error("monitor", "the configured stage screen is not connected; waiting for it (Ctrl+C to give up)")
+            stop_request = runtime_dir() / f"{opts.instance}-stop-request"
+            stop_request.unlink(missing_ok=True)
             while chosen is None:
-                await asyncio.sleep(2.0)
-                chosen = choose_monitor(cfg.stage, list_monitors())
+                _write_status(status_file, {"mode": "waiting for the stage screen", "show": cfg.name, "config": str(cfg.path)})
+                for _ in range(10):
+                    await asyncio.sleep(0.2)
+                    if stop_request.exists() or _console_ctrl_c():
+                        # Stop (control panel) or Ctrl+C while nothing is on stage yet.
+                        stop_request.unlink(missing_ok=True)
+                        status_file.unlink(missing_ok=True)
+                        log.info("stop", "stopped while waiting for the stage screen")
+                        log.close()
+                        console.close()
+                        return EXIT_OK
+                chosen = stage_monitor(cfg.stage, list_monitors())
+            status_file.unlink(missing_ok=True)
             log.info("monitor", f"stage screen connected: {chosen}")
-        elif len(monitors) == 1:
-            log.warn("monitor", "only one screen is connected: the video uses it (the console will be covered)")
-        if cfg.stage.screen is None and not cfg.stage.screen_name:
+        if chosen.primary:
+            log.warn("monitor", "the stage is the main display: the video covers the console and the control panel")
+        if auto_screen:
             # Tell mpv explicitly which screen we picked, so mpv and the backdrop agree.
             cfg = dataclasses.replace(cfg, stage=dataclasses.replace(cfg.stage, screen=chosen.index))
             log.info("monitor", f"stage output: {chosen}")
         rect = (chosen.left, chosen.top, chosen.width, chosen.height)
-        stage = Win32Stage(cfg.stage, log)
+        stage = Win32Stage(cfg.stage, log, auto_screen=auto_screen)
     else:
         stage = OntopStage()
     if not opts.headless and cfg.stage.engine == "compositor":
-        compositor = await _start_compositor(cfg, opts, log, mpv, rect)
+        compositor = await _start_compositor(cfg, opts, log, mpv, rect, auto_screen)
         if compositor is not None:
             stage = compositor
     log.info("engine", "compositor: one window, decks are layers" if compositor is not None else "window engine: one mpv window per deck")
@@ -156,7 +175,7 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
         deck.listener = controller
     windows = compositor.backdrop if compositor is not None else stage
     if isinstance(windows, Win32Stage):
-        windows.on_display_change = lambda: _display_changed(windows, controller, log)
+        windows.on_display_change = lambda: _display_changed(windows, controller, log, compositor)
     if compositor is not None:
         compositor.on_key = controller.stage_key
         compositor.on_restart = controller.compositor_restarted
@@ -187,19 +206,12 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
         loop.add_signal_handler(signal.SIGHUP, console_closed)
 
     await controller.start(fresh=opts.fresh)
-    status_file = runtime_dir() / f"{opts.instance}-status.json"
     engine = "compositor" if compositor is not None else "windows"
 
     def on_status(text: str) -> None:
         console.status(text)
         # For the control panel (aethra gui): what is on stage, once a second.
-        data = dict(controller.status_dict(), pid=os.getpid(), updated=time.time(), engine=engine, config=str(cfg.path))
-        tmp = status_file.with_suffix(".tmp")
-        try:
-            tmp.write_text(json.dumps(data), encoding="utf-8")
-            os.replace(tmp, status_file)
-        except OSError:
-            pass
+        _write_status(status_file, dict(controller.status_dict(), engine=engine, config=str(cfg.path)))
 
     controller.on_status = on_status
     if opts.exit_after is not None:
@@ -227,6 +239,7 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
     if IS_WINDOWS and cfg.keyboard.global_hotkeys and not opts.no_hotkeys:
         hotkeys = GlobalHotkeys(cfg.keyboard.keys, post, log)
         hotkeys.start()
+        controller.on_panel_focus = PanelFocus(hotkeys, log).update
     # The console reader also runs with keyboard.console off: it turns Ctrl+C
     # into the quit command.
     console_keys: ConsoleKeys | None = ConsoleKeys(cfg.keyboard.keys if cfg.keyboard.console else {}, post, log)
@@ -257,8 +270,35 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
     return exit_code
 
 
+def _console_ctrl_c() -> bool:
+    """Ctrl+C typed in the console (it arrives as a key, see winapi.ConsoleInputMode)."""
+    if not IS_WINDOWS:
+        return False
+    import msvcrt
+
+    try:
+        while msvcrt.kbhit():
+            if msvcrt.getwch() == "\x03":
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _write_status(path: Path, data: dict) -> None:  # type: ignore[type-arg]
+    """The status file the control panel reads (replaced atomically)."""
+    data = dict(data, pid=os.getpid(), updated=time.time())
+    tmp = path.with_suffix(".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 async def _start_compositor(
-    cfg: Config, opts: RunOptions, log: EventLog, mpv: str, rect: tuple[int, int, int, int]
+    cfg: Config, opts: RunOptions, log: EventLog, mpv: str, rect: tuple[int, int, int, int], auto_screen: bool = False
 ) -> CompositorStage | None:
     """Start (or reconnect to) the compositor; None if it cannot run here, in
     which case the show runs with the window engine."""
@@ -279,7 +319,7 @@ async def _start_compositor(
             log_file = None
     compositor = CompositorStage(
         cfg.stage, log, ipc_address(opts.instance, "compositor"), rect,
-        libmpv=libmpv, log_file=log_file, backdrop=Win32Stage(cfg.stage, log) if IS_WINDOWS else None,
+        libmpv=libmpv, log_file=log_file, backdrop=Win32Stage(cfg.stage, log, auto_screen=auto_screen) if IS_WINDOWS else None,
         startup_timeout=cfg.mpv.startup_timeout + 5.0, priority=cfg.mpv.priority,
     )
     try:
@@ -290,7 +330,7 @@ async def _start_compositor(
     return compositor
 
 
-def _display_changed(stage: Win32Stage, controller: ShowController, log: EventLog) -> None:
+def _display_changed(stage: Win32Stage, controller: ShowController, log: EventLog, compositor: CompositorStage | None = None) -> None:
     log.warn("display_change", "display configuration changed")
     loop = asyncio.get_running_loop()
 
@@ -299,6 +339,9 @@ def _display_changed(stage: Win32Stage, controller: ShowController, log: EventLo
         try:
             if stage.reposition():
                 log.info("monitor", f"windows placed on the stage output: {stage.monitor}")
+                m = stage.monitor
+                if compositor is not None and m is not None:
+                    compositor.rect = (m.left, m.top, m.width, m.height)  # for a compositor restart
                 controller.picture.refresh()
                 return
             if attempt == 0:

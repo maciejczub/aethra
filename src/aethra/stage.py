@@ -84,6 +84,20 @@ def choose_monitor(cfg: StageConfig, monitors: list[Monitor]) -> Monitor | None:
     return non_primary[0] if non_primary else monitors[0]
 
 
+def stage_monitor(cfg: StageConfig, monitors: list[Monitor]) -> Monitor | None:
+    """The screen the show plays on.
+
+    Configured (``stage.screen`` / ``stage.screen_name``): that screen. Automatic:
+    the first screen that is not the main display - and None while there is no
+    such screen, so the show never covers the operator's main display (the
+    console and the control panel) because the projector was not detected yet.
+    """
+    if cfg.screen_name or cfg.screen is not None:
+        return choose_monitor(cfg, monitors)
+    non_primary = [m for m in monitors if not m.primary]
+    return non_primary[0] if non_primary else None
+
+
 class Stage(Protocol):
     has_backdrop: bool
 
@@ -161,10 +175,19 @@ class OntopStage:
 class Win32Stage:
     has_backdrop = True
 
-    def __init__(self, cfg: StageConfig, log: EventLog, on_display_change: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        cfg: StageConfig,
+        log: EventLog,
+        on_display_change: Callable[[], None] | None = None,
+        auto_screen: bool = False,
+    ) -> None:
         self.cfg = cfg
         self.log = log
         self.on_display_change = on_display_change
+        # Automatic stage screen: after a display change it is again "the screen
+        # that is not the main display", whatever number Windows gives it now.
+        self.auto_screen = auto_screen
         self.decks: dict[str, Deck] = {}
         self.monitor: Monitor | None = None
         self._order: list[str] = []
@@ -256,7 +279,11 @@ class Win32Stage:
         """
         from aethra import winapi as w
 
-        found = choose_monitor(self.cfg, list_monitors())
+        monitors = list_monitors()
+        if self.auto_screen:
+            found = stage_monitor(StageConfig(), monitors)
+        else:
+            found = choose_monitor(self.cfg, monitors)
         if found is None:
             return False  # keep everything where it is until the monitor is back
         self.monitor = found

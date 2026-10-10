@@ -83,6 +83,7 @@ players are `mpv.exe` processes.
 | V10 | Notifications | Trigger a toast (e.g. plug a USB stick) | Nothing on the stage output. |
 | V11 | MIDI port | `aethra monitor`, play the REAPER cue track | Notes on channel 16 and, if used, `MTC running`. |
 | V12 | Show desktop | Press `Win+D`, then `Win+M` | The stage windows come back within about half a second (log: `stage windows were minimised`). |
+| V14 | Panel during the show | Projector as the extended screen, the panel on the laptop; during a song type into a title field (letters `b`, `f`, spaces), then click outside the fields and press `Space` | Typing changes nothing on stage; `Space` outside the fields starts the next cue. Start the show with the projector off: the Live page says it waits for the stage screen, the laptop screen stays free. |
 | V13 | Transitions | Test mode on; give a few cues different `xfade_in_type`/`xfade_out_type`; trigger them in and out of the filler and back to back | Every transition runs smoothly at the display rate; the out-transition is over when the clip's last frame (timecode in the clip) is reached; `dropped vo 0` in the overlay. |
 
 V2 and V9 are the two items that depend most on the particular laptop, GPU

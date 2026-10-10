@@ -27,6 +27,40 @@ browser; `aethra gui --no-window` only prints the address.
 | Logs & reports | Every session's report and events. |
 | Show file | The file as it is on disk; open another file. |
 
+## The panel and the show on one laptop
+
+The intended set-up: the projector is the laptop's **second, extended
+screen** (`Win+P` > *Extend*, the laptop panel is the main display — see
+[windows-setup.md](windows-setup.md), section 1), the show plays on the
+projector, and the panel stays on the laptop's own screen, where it can be used
+during the show.
+
+* **Which screen gets the video.** With `stage.screen` left automatic it is the
+  screen that is not the main display. If the projector is not connected (or
+  not detected) when the show starts, the show **waits for it** — the Live page
+  says so — instead of covering the laptop screen; *Stop* ends the waiting.
+  When the projector is unplugged and plugged in again, the video goes back to
+  the screen that is not the main display, whatever number Windows gives it.
+  Only an explicit choice of the main display plays the video there (rehearsing
+  without a projector).
+* **Typing in the panel is safe.** The show's keys (Space = GO, arrows, `B`,
+  `F`, `Esc` …) are global hotkeys: in any other program they run the show
+  command instead of typing. While the panel has the focus, the keys that type
+  (without Ctrl, Alt or Win) are released for it: typing in a field never
+  touches the show, and outside the fields the panel itself runs the same keys
+  (Space = GO). Keys with Ctrl/Alt (test overlay, quit) stay global. If the
+  panel closes or hangs, the keys are global again after 2.5 s.
+* **Nothing from the panel lands on the stage.** The stage windows never take
+  the focus and hide the mouse pointer, so a pointer that wanders onto the
+  projector is not seen. Tools that would put test pictures on the stage
+  screen (codec benchmark, self-test on the stage screen) refuse to run during
+  the show; tools that load the processor (full verify, test clips, reading
+  all clips) ask first. The transition previews stand still during the show.
+* The show's console window starts minimised when the panel starts the show
+  (the panel keeps the focus; the console shows the same status).
+* The show runs at a higher priority than the panel and the browser window, so
+  the panel cannot slow it down.
+
 ## Good to know
 
 * Changes are checked as you type (the badge at the top) and written with

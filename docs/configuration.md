@@ -20,7 +20,7 @@ relative to `show.media_dir`. Durations are in seconds.
 
 | Key | Default | |
 |---|---|---|
-| `screen` | first screen that is not the main display | Index from `aethra devices`. |
+| `screen` | the screen that is not the main display | Index from `aethra devices`. Automatic: the projector connected as the second (extended) screen; while there is none the show waits for it instead of covering the main display (the console and the control panel). Set `0` (the main display) to play without a projector. |
 | `screen_name` | – | Windows device name instead of the index, e.g. `\\.\DISPLAY2`. |
 | `width`, `height` | `1920`, `1080` | Stage resolution: the compositor's picture size (scaled to the screen if it differs), overlays, filler colour. |
 | `fps` | `25` | Master frame rate (timecode display, "one frame" thresholds). |
