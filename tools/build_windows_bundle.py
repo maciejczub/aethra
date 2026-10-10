@@ -272,6 +272,7 @@ def build(args: argparse.Namespace) -> Path:
     else:
         write_crlf(out / "show.yaml", (ROOT / "examples" / "show.example.yaml").read_text())
     write_crlf(out / "show.example.yaml", (ROOT / "examples" / "show.example.yaml").read_text())
+    shutil.copy2(ROOT / "gfx" / "aethra.ico", out / "aethra.ico")
     for name in ("media", "logs"):
         if (kept / name).is_dir():
             shutil.move(str(kept / name), out / name)

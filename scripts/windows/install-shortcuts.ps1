@@ -50,6 +50,9 @@ function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [strin
     $Link.WorkingDirectory = $WorkDir
     $Link.WindowStyle = 1
     $Link.Description = "Aethra stage video player"
+    $Icon = Join-Path $AethraDir "aethra.ico"
+    if (-not (Test-Path $Icon)) { $Icon = Join-Path $AethraDir "gfx\aethra.ico" }
+    if (Test-Path $Icon) { $Link.IconLocation = "$Icon,0" }
     $Link.Save()
     Write-Host "created $Path"
 }

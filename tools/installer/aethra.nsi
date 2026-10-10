@@ -18,6 +18,8 @@ BrandingText "Aethra ${VERSION}"
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Aethra"
 !define MUI_ABORTWARNING
+!define MUI_ICON "${SOURCE}\aethra.ico"
+!define MUI_UNICON "${SOURCE}\aethra.ico"
 !define MUI_WELCOMEPAGE_TEXT "This installs Aethra ${VERSION}, the stage video player, for the current user.$\r$\n$\r$\nNo administrator rights are needed. Updating an existing installation keeps your show file (show.yaml), your clips (media) and the logs."
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Open the Aethra control panel"
@@ -78,6 +80,7 @@ Section "Aethra (required)" SecMain
   File "${SOURCE}\LICENSE.txt"
   File "${SOURCE}\THIRD-PARTY.txt"
   File "${SOURCE}\VERSION.txt"
+  File "${SOURCE}\aethra.ico"
   File "${SOURCE}\show.example.yaml"
   ; The show file only on a first installation.
   SetOverwrite off
@@ -91,6 +94,7 @@ Section "Aethra (required)" SecMain
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Aethra"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "Aethra"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\aethra.ico"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
@@ -98,16 +102,16 @@ Section "Aethra (required)" SecMain
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
 
   CreateDirectory "$SMPROGRAMS\Aethra"
-  CreateShortcut "$SMPROGRAMS\Aethra\Aethra.lnk" "$INSTDIR\Aethra.cmd" '"show.yaml"'
-  CreateShortcut "$SMPROGRAMS\Aethra\Aethra panel.lnk" "$INSTDIR\python\pythonw.exe" '-X utf8 -m aethra gui "show.yaml"'
+  CreateShortcut "$SMPROGRAMS\Aethra\Aethra.lnk" "$INSTDIR\Aethra.cmd" '"show.yaml"' "$INSTDIR\aethra.ico" 0
+  CreateShortcut "$SMPROGRAMS\Aethra\Aethra panel.lnk" "$INSTDIR\python\pythonw.exe" '-X utf8 -m aethra gui "show.yaml"' "$INSTDIR\aethra.ico" 0
   CreateShortcut "$SMPROGRAMS\Aethra\Aethra folder.lnk" "$INSTDIR"
   CreateShortcut "$SMPROGRAMS\Aethra\Uninstall Aethra.lnk" "$INSTDIR\Uninstall.exe"
 SectionEnd
 
 Section "Desktop shortcuts" SecDesktop
   SetOutPath "$INSTDIR"
-  CreateShortcut "$DESKTOP\Aethra.lnk" "$INSTDIR\Aethra.cmd" '"show.yaml"'
-  CreateShortcut "$DESKTOP\Aethra panel.lnk" "$INSTDIR\python\pythonw.exe" '-X utf8 -m aethra gui "show.yaml"'
+  CreateShortcut "$DESKTOP\Aethra.lnk" "$INSTDIR\Aethra.cmd" '"show.yaml"' "$INSTDIR\aethra.ico" 0
+  CreateShortcut "$DESKTOP\Aethra panel.lnk" "$INSTDIR\python\pythonw.exe" '-X utf8 -m aethra gui "show.yaml"' "$INSTDIR\aethra.ico" 0
 SectionEnd
 
 Section /o "Start the show after logging in" SecAutostart
@@ -140,6 +144,7 @@ Section "Uninstall"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\THIRD-PARTY.txt"
   Delete "$INSTDIR\VERSION.txt"
+  Delete "$INSTDIR\aethra.ico"
   Delete "$INSTDIR\show.example.yaml"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR\logs"

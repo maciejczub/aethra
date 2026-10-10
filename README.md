@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="gfx/aethra-logo-horizontal-on-dark.svg">
+    <img src="gfx/aethra-logo-horizontal-on-light.svg" alt="Aethra" width="420">
+  </picture>
+</p>
+
 # Aethra
 
 **A reliability-first stage video player.** Aethra runs on a dedicated Windows
