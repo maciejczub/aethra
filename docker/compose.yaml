@@ -1,0 +1,21 @@
+# Test stack (development only). Usage, from the repository root:
+#   docker compose -f docker/compose.yaml run --rm test
+#   docker compose -f docker/compose.yaml run --rm test python -m pytest -m mpv -v
+# The image is disposable: remove it with `docker rmi aethra-test-runner:tmp`.
+name: aethra-test
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      labels:
+        disposable: "true"
+    image: aethra-test-runner:tmp
+    volumes:
+      - ..:/src
+    working_dir: /src
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      AETHRA_TEST_MPV: "1"
+    command: ["python", "-m", "pytest", "-q"]

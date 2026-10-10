@@ -1,2 +1,147 @@
-# aethra
+# Aethra
 
+**A reliability-first stage video player.** Aethra runs on a dedicated Windows
+laptop and plays one pre-rendered clip per song, in sync with a backing track
+played by [REAPER](https://www.reaper.fm/) on another computer. Between songs it
+shows a filler. Whatever goes wrong, the stage output never shows a dialog, a
+frozen picture or the Windows desktop.
+
+```
+REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ 3 × mpv ──▶ projector / LED wall
+```
+
+- **Instant, synchronous starts.** The next clip waits in a second player,
+  paused on its first frame; a MIDI note (or OSC message) from REAPER just
+  releases it. A clip that was not preloaded is loaded slightly ahead of time
+  and released at the exact moment, so even then the first visible frame is in
+  sync.
+- **Stays in sync.** While a clip plays, its position is compared with the
+  trigger clock (or MIDI Time Code from REAPER) and gently corrected by tiny
+  speed changes; a relocation is followed with one exact seek.
+- **Filler between songs**: solid colour, still image or video loop, with fades.
+- **Fails safe.** A broken file never reaches the stage. A crashed or hung
+  player is replaced while the filler covers for it, and the song is rejoined at
+  the right position. A black window owned by the controller sits under
+  everything. If the controller itself crashes, the launcher restarts it and it
+  takes over the still-running players without a visible interruption.
+- **Manual control** with global hotkeys: GO, next/previous cue, blackout,
+  filler.
+- **Event log** with microsecond timestamps and a post-show report.
+- **Test mode**: timecode, frame number, dropped frames and drift on screen.
+- One shortcut to start, optional autostart, no internet needed at run time.
+
+Built on [mpv](https://mpv.io/) (separate processes, hardware decoding,
+controlled over JSON IPC). Runtime dependencies: Python ≥ 3.11 and PyYAML; the
+Windows bundle includes both.
+
+> **Status: 0.1, not yet used on stage.** The core is covered by unit tests and
+> by integration tests against a real mpv on Linux. The Windows-specific parts
+> (window stacking, WinMM MIDI, global hotkeys, backdrop window) must be
+> validated on the show laptop first — see [docs/testing.md](docs/testing.md).
+
+## Getting started on the show laptop
+
+1. Build the bundle (on any computer with Python and internet access):
+
+   ```bash
+   python tools/build_windows_bundle.py --mpv-dir path/to/mpv --zip
+   ```
+
+   This creates `dist/Aethra/` (and a zip): embeddable Python, PyYAML, Aethra,
+   mpv, the launcher and the docs. Windows mpv builds: <https://mpv.io/installation/>.
+
+2. Copy the folder to the laptop, e.g. `C:\Aethra`, and put the clips into
+   `media\`.
+3. Edit `show.yaml` (commented example: [examples/show.example.yaml](examples/show.example.yaml),
+   reference: [docs/configuration.md](docs/configuration.md)), then run:
+
+   ```bat
+   cd C:\Aethra
+   Aethra.cmd devices
+   Aethra.cmd check
+   Aethra.cmd verify
+   Aethra.cmd selftest --windows
+   ```
+
+4. Create the desktop shortcut (and optionally autostart):
+
+   ```bat
+   powershell -ExecutionPolicy Bypass -File scripts\install-shortcuts.ps1 -Autostart
+   ```
+
+5. Prepare Windows so nothing can pop up on the stage:
+   [docs/windows-setup.md](docs/windows-setup.md) and
+   `scripts\prepare-stage-laptop.ps1`.
+6. Set up REAPER: [docs/reaper-setup.md](docs/reaper-setup.md).
+7. Choose the codec by measuring on the laptop: [docs/codec-selection.md](docs/codec-selection.md).
+8. Run the tests in [docs/testing.md](docs/testing.md) before the first show.
+
+Running a show: [docs/operation.md](docs/operation.md).
+
+## Commands
+
+| Command | |
+|---|---|
+| `aethra run [show.yaml] [--test-mode]` | Run the show (`Aethra.cmd` does this and restarts it after a crash). |
+| `aethra check [show.yaml]` | Validate the configuration, media files, MIDI port, screens. |
+| `aethra verify [show.yaml] [--quick]` | Decode every media file to find damaged ones. |
+| `aethra devices` | List MIDI inputs and screens. |
+| `aethra monitor [show.yaml]` | Print incoming MIDI notes, MTC and OSC — for setting up REAPER. |
+| `aethra bench FILE... [--config show.yaml]` | Codec test: dropped frames and CPU load on this machine. |
+| `aethra selftest [show.yaml] [--windows]` | Measures what Aethra relies on, on this machine: IPC latency, mpv playback rate, timer accuracy, hotkeys, window stacking. |
+| `aethra rehearse [show.yaml] [--loops 2]` | Plays the whole set through a running show over OSC, without REAPER (soak test). |
+| `aethra report [logs]` | Post-show summary of the newest event log. |
+| `aethra send ADDRESS [ARGS]` | Send one OSC message (testing). |
+
+On the laptop every command is also available as `Aethra.cmd <command> ...`.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — decks, window stacking, timing model, failure handling
+- [Configuration reference](docs/configuration.md)
+- [Running a show](docs/operation.md) — console, keys, what to do when
+- [Testing](docs/testing.md) — automated tests, laptop validation, rehearsal tests
+- [Choosing the codec](docs/codec-selection.md)
+- [Preparing Windows](docs/windows-setup.md)
+- [Configuring REAPER](docs/reaper-setup.md)
+- [Fallback: xjadeo following MTC](docs/xjadeo-fallback.md)
+
+## Development
+
+```bash
+pip install -e .[dev]          # Python >= 3.11; on Linux add .[rtmidi] for MIDI
+python -m pytest               # unit tests (mpv tests are skipped without mpv/ffmpeg)
+```
+
+The full suite, including the integration tests against a real mpv, runs in a
+container:
+
+```bash
+docker compose -f docker/compose.yaml run --rm test
+docker compose -f docker/compose.yaml down        # afterwards: removes the stack's network
+```
+
+Test material: `python tools/make_test_clips.py codecs|sync|demo --out DIR`.
+
+Project layout: `src/aethra/` (application), `tests/`, `tools/` (bundle
+builder, test clips), `scripts/windows/` (launcher, shortcuts, laptop
+preparation), `docs/`, `examples/`, `docker/` (test environment).
+
+### Docker Desktop names
+
+Docker is used only for development (the test environment above):
+
+| Item | Name |
+|---|---|
+| Compose stack | `aethra-test` (`docker/compose.yaml`) |
+| Service / containers | `test` → `aethra-test-test-run-<id>` (removed after each run) |
+| Image | `aethra-test-runner:tmp` (label `disposable=true`; delete with `docker rmi aethra-test-runner:tmp`) |
+| Network | `aethra-test_default` |
+| Volumes, host ports | none |
+
+## License
+
+MIT, see [LICENSE](LICENSE). Aethra starts [mpv](https://mpv.io/) as a separate
+program; mpv itself is GPLv2+ (LGPLv2.1+ when built that way) and is not part of
+this repository. The Windows bundle includes the Python embeddable distribution
+(PSF license) and PyYAML (MIT), with their license files.

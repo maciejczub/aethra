@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aethra"
+version = "0.1.0"
+description = "Reliability-first stage video player: mpv playback cued by MIDI/OSC from a DAW, with filler between songs."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+# MIDI on Linux/macOS. Windows uses the built-in WinMM backend (no extra package).
+rtmidi = ["python-rtmidi>=1.5"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aethra = "aethra.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "mpv: needs a real mpv binary (run them with docker/compose.yaml)",
+]

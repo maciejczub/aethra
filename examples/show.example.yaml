@@ -1,0 +1,113 @@
+# Aethra show configuration (example).
+#
+# Copy this file next to Aethra.cmd as "show.yaml" and edit it. Check it with
+#   aethra check show.yaml        (configuration, files, MIDI port, screens)
+#   aethra verify show.yaml       (decodes every media file)
+# Unknown keys are errors, so typos are caught before the show.
+# Relative paths are relative to this file (media paths: to show.media_dir).
+
+show:
+  name: "Example show"
+  media_dir: media              # folder with the clips
+
+stage:
+  # Which screen gets the video. Leave out to use the first screen that is not
+  # the main display. "aethra devices" lists the screens with their index.
+  # screen: 1
+  # screen_name: '\\.\DISPLAY2'
+  width: 1920
+  height: 1080
+  fps: 25
+
+mpv:
+  path: mpv/mpv.exe             # relative to this file, or just "mpv" if it is on PATH
+  hwdec: auto-safe              # choose with "aethra bench" on the show laptop: auto-safe, d3d11va, no, ...
+  # vo: gpu-next                # leave unset for mpv's default
+  # extra_args: ["--d3d11-flip=yes"]
+
+filler:                         # what is shown between songs
+  mode: loop                    # color | image | loop
+  file: filler-loop.mp4         # for image/loop; if it is missing or broken, the colour is used
+  color: "#000000"
+
+transitions:
+  fade_out: 0.5                 # seconds: end of a song -> black
+  fade_in: 0.5                  # seconds: black -> filler
+
+sync:
+  # Extra lead for the whole video chain (projector/LED processing, MIDI
+  # latency). Positive = the picture is shown earlier. Measure it (docs/testing.md).
+  latency_compensation: 0.0
+  retrigger_guard: 1.0          # ignore the same cue triggered again within this many seconds
+  resume_after_crash: true      # if a deck dies mid-song, rejoin the song at the right position
+  stall_timeout: 2.0            # seconds without a new frame before a deck counts as stalled
+  correction:                   # keep a playing clip locked to its trigger
+    enabled: true               # reference: the laptop clock, or MTC when sync.mtc is enabled and running
+    threshold: 0.040            # start correcting above 1 frame of drift
+    target: 0.010               # stop correcting below this
+    max_speed_change: 0.01      # at most 1 % faster/slower while correcting
+    correction_time: 4.0
+    hard_seek: 1.0              # jump if the drift exceeds this (e.g. REAPER relocated); null = never
+  mtc:
+    enabled: false              # use MIDI Time Code from REAPER (same MIDI input) as the reference
+    on_stop: continue           # continue | filler (when MTC stops while a song plays)
+
+midi:
+  enabled: true
+  port: "AETHRA-STAGE"          # part of the MIDI input name ("aethra devices"); "*" = first port.
+                                # With rtpMIDI this is the session's local name (docs/reaper-setup.md, 2.3).
+  channel: 16                   # 1-16, or "any"
+  command_notes:                # optional: control notes on the same channel
+    black: 120
+    filler: 121
+
+osc:
+  enabled: false
+  bind: 0.0.0.0
+  port: 9000
+  prefix: /aethra               # /aethra/cue <id|number>, /aethra/go, /aethra/black [0|1], ...
+  require_playing: false        # accept per-cue OSC triggers only while REAPER reports /play 1
+
+keyboard:
+  global_hotkeys: true          # Windows: keys work whatever window has focus
+  console: true
+  stage_window: true
+  keys:                         # defaults shown; each command takes one key or a list
+    go: space
+    next: [right, down]
+    prev: [left, up]
+    black: [b, escape]
+    filler: f
+    test: ctrl+t
+    quit: ctrl+shift+q          # press twice within 3 seconds
+
+logging:
+  dir: logs
+  mpv_logs: true
+  status_interval: 1.0
+
+test_mode: false                # timecode/frame-number overlay on the stage (or: aethra run --test-mode)
+
+cues:
+  # One entry per song, in set order. "next" and "go" follow this order.
+  # offset = clip position (seconds) that coincides with the trigger:
+  #   0     the clip starts with the trigger
+  #   2.0   the clip has 2 s of pre-roll before the trigger point
+  #   -1.0  the trigger comes 1 s before the clip should start
+  - id: "01"
+    title: Opening
+    file: 01-opening.mp4
+    midi_note: 36
+  - id: "02"
+    title: Second song
+    file: 02-second.mp4
+    midi_note: 37
+    offset: 0.0
+    on_end: filler              # filler | hold (keep the last frame) | black
+  - id: "03"
+    title: Ballad
+    file: 03-ballad.mp4
+    midi_note: 38
+    fade_in: 1.0                # fade in from black instead of a cut
+    # osc: /aethra/song/3       # an extra OSC address that triggers this cue
+    # mtc_start: "00:12:30:00"  # REAPER timecode of the trigger (else measured at the trigger)

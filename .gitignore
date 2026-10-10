@@ -33,3 +33,20 @@ logs/
 /tmp/
 /dist/
 /build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Aethra: generated clips, local show data
+/test-clips/
+/media/
+/show.yaml
+
+# Local instructions for coding assistants (not part of the project)
+CLAUDE.md
+CLAUDE.local.md
