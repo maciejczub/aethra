@@ -928,6 +928,12 @@ class ShowController:
             if args and isinstance(args[0], (int, float, bool)):
                 on = float(args[0]) >= 0.5
             self.command("black", source, on)
+        elif name == "select" and args and isinstance(args[0], (int, float)) and not isinstance(args[0], bool):
+            self.select(int(args[0]) - 1, source)  # 1-based, like /cue
+        elif name == "quit" and addr[0] in ("127.0.0.1", "::1"):
+            # The control panel on this computer; like the key, it needs two
+            # messages within 3 s.
+            self.command("quit", source)
         else:
             self.log.warn("osc", f"unknown address {self.cfg.osc.prefix}/{name}")
 
@@ -1244,6 +1250,46 @@ class ShowController:
         if self.blackout:
             parts.append("BLACKOUT")
         return " | ".join(parts)
+
+    def status_dict(self, t: float | None = None) -> dict[str, Any]:
+        """Machine-readable status (the GUI reads it from the status file)."""
+        t = now() if t is None else t
+        live = self.live
+        nxt = self.selected_cue
+        data: dict[str, Any] = {
+            "show": self.cfg.name,
+            "mode": self.mode.value,
+            "text": self.status_text(t),
+            "blackout": self.blackout,
+            "test_mode": self.test_mode,
+            "visible": self.visible,
+            "background": self.background_kind,
+            "selected": self.selected,
+            "next": nxt.id if nxt else None,
+            "next_ready": any(
+                d.load_ is not None and d.load_.cue is nxt and d.state == DeckState.READY for d in self.cue_decks
+            ) if nxt else False,
+            "midi": self.inputs.midi,
+            "osc": self.inputs.osc if self.cfg.osc.enabled else None,
+            "decks": {d.name: d.state.value for d in self.decks.values()},
+            "live": None,
+        }
+        if live is not None:
+            drift = live.corrector.last_drift if live.corrector is not None else None
+            data["live"] = {
+                "cue": live.cue.id,
+                "title": live.cue.title,
+                "deck": live.deck.name,
+                "position": live.deck.time_pos,
+                "duration": live.deck.duration,
+                "ended": live.ended,
+                "leaving": live.leaving,
+                "drift_ms": None if drift is None else round(drift * 1000, 1),
+            }
+        if self.mtc is not None and self.cfg.sync.mtc.enabled:
+            snap = self.mtc.snapshot(t)
+            data["mtc"] = {"status": snap.status, "timecode": snap.timecode}
+        return data
 
     async def _status_loop(self) -> None:
         while not self.stopping:

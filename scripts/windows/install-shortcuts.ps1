@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Creates the "Aethra" desktop shortcut and, optionally, starts Aethra
+    Creates the "Aethra" and "Aethra panel" desktop shortcuts and, optionally, starts Aethra
     automatically after logging in.
 
 .DESCRIPTION
@@ -56,6 +56,10 @@ function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [strin
 
 $Desktop = [Environment]::GetFolderPath("Desktop")
 New-Shortcut (Join-Path $Desktop "Aethra.lnk") $Launcher "`"$Config`"" $AethraDir
+# The control panel: edit the show, run the checks and tools, start and watch the show.
+$PanelLink = Join-Path $Desktop "Aethra panel.lnk"
+New-Shortcut $PanelLink $Launcher "gui `"$Config`"" $AethraDir
+$Link = $Shell.CreateShortcut($PanelLink); $Link.WindowStyle = 7; $Link.Save()  # minimised: the launcher only starts the panel
 
 $Startup = [Environment]::GetFolderPath("Startup")
 $StartupLink = Join-Path $Startup "Aethra.lnk"

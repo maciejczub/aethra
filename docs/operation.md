@@ -28,6 +28,10 @@
    before starting the show) to see the trigger arrive, then go back to the
    filler with `F`.
 
+The **Aethra panel** shortcut opens the control panel, which does all of the
+steps above with buttons and shows the show while it runs
+([control-panel.md](control-panel.md)).
+
 ## The console
 
 The last line is the status, refreshed every second:

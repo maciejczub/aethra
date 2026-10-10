@@ -4,6 +4,7 @@ rem
 rem   Aethra.cmd                      run the show (show.yaml next to this file)
 rem   Aethra.cmd other.yaml           run another show file
 rem   Aethra.cmd show.yaml --test-mode
+rem   Aethra.cmd gui [show.yaml]      the control panel (no console window)
 rem   Aethra.cmd check show.yaml      any other aethra command runs once:
 rem                                   check, verify, devices, monitor, bench, selftest,
 rem                                   rehearse, report, send
@@ -33,12 +34,21 @@ set PYCMD="%~dp0.venv\Scripts\python.exe"
 set "PYTHONPATH=%~dp0src"
 
 :dispatch
+if /i "%~1"=="gui" goto :gui
 for %%c in (check verify devices monitor bench selftest rehearse report send) do if /i "%~1"=="%%c" goto :command
 goto :show
 
 :command
 call %PYCMD% -X utf8 -m aethra %*
 exit /b %ERRORLEVEL%
+
+:gui
+set "PANELCFG=%~2"
+if "%PANELCFG%"=="" set "PANELCFG=show.yaml"
+set "PYW=%PYCMD:python.exe=pythonw.exe%"
+if exist "%~dp0python\pythonw.exe" set PYW="%~dp0python\pythonw.exe"
+start "" %PYW% -X utf8 -m aethra gui "%PANELCFG%"
+exit /b 0
 
 :show
 title Aethra

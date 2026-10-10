@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
+import os
 import platform as pyplatform
 import signal
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -184,7 +187,21 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
         loop.add_signal_handler(signal.SIGHUP, console_closed)
 
     await controller.start(fresh=opts.fresh)
-    controller.on_status = console.status
+    status_file = runtime_dir() / f"{opts.instance}-status.json"
+    engine = "compositor" if compositor is not None else "windows"
+
+    def on_status(text: str) -> None:
+        console.status(text)
+        # For the control panel (aethra gui): what is on stage, once a second.
+        data = dict(controller.status_dict(), pid=os.getpid(), updated=time.time(), engine=engine, config=str(cfg.path))
+        tmp = status_file.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp, status_file)
+        except OSError:
+            pass
+
+    controller.on_status = on_status
     if opts.exit_after is not None:
         loop.call_later(opts.exit_after, controller.stop_event.set)
 
@@ -233,6 +250,7 @@ async def run_show(cfg: Config, opts: RunOptions) -> int:
         if osc_transport is not None:
             osc_transport.close()
         await controller.shutdown(quit_decks=not detach)
+        status_file.unlink(missing_ok=True)
         log.info("stopped", "video players left running" if detach else "bye")
         log.close()
         console.close()

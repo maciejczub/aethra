@@ -381,6 +381,15 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- gui
+
+
+def cmd_gui(args: argparse.Namespace) -> int:
+    from aethra.gui.server import serve
+
+    return serve(Path(args.config), port=args.port, open_window=not args.no_window)
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -449,6 +458,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("log", nargs="?", default="logs", help="log file, or a folder (the newest log is used)")
     p.set_defaults(func=cmd_report)
 
+    p = sub.add_parser("gui", help="the control panel: edit the show, run checks and tools, start and watch the show")
+    p.add_argument("config", nargs="?", default=DEFAULT_CONFIG)
+    p.add_argument("--port", type=int, default=0, help="HTTP port on 127.0.0.1 (default: any free port)")
+    p.add_argument("--no-window", action="store_true", help="only print the address")
+    p.set_defaults(func=cmd_gui)
+
     p = sub.add_parser("send", help="send one OSC message (testing)")
     p.add_argument("address")
     p.add_argument("args", nargs="*")
@@ -461,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    commands = {"run", "check", "verify", "devices", "monitor", "bench", "selftest", "rehearse", "report", "send"}
+    commands = {"run", "check", "verify", "devices", "monitor", "bench", "selftest", "rehearse", "report", "send", "gui"}
     if argv and argv[0] not in commands and not argv[0].startswith("-"):
         argv.insert(0, "run")  # "aethra show.yaml" == "aethra run show.yaml"
     args = parser.parse_args(argv)

@@ -36,6 +36,9 @@ REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ c
   filler.
 - **Event log** with microsecond timestamps and a post-show report.
 - **Test mode**: timecode, frame number, dropped frames and drift on screen.
+- **Control panel** (`Aethra panel`): edit the show and the playlist, run the
+  checks, the codec benchmark and the Windows preparation, start and watch the
+  show, read the reports — [docs/control-panel.md](docs/control-panel.md).
 - One shortcut to start, optional autostart, no internet needed at run time.
 
 Built on [mpv](https://mpv.io/): libmpv players composed on the GPU by a
