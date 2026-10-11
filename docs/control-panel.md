@@ -13,19 +13,103 @@ browser; `aethra gui --no-window` only prints the address.
 
 ## Pages
 
-| Page | What it does |
-|---|---|
-| Live | Start/stop the show, what is on stage (song, position, drift, players), GO / previous / next / blackout / filler / intro / outro / test overlay, the set list (click: select next, double-click: start), the event log. |
-| Playlist | The cues: drag to reorder, add from the media folder, MIDI note with *learn* (play the note), offset, end behaviour, per-song transitions, OSC/program/MTC triggers; clip lengths. |
-| Transitions | Global in/out transitions with an animated preview of every type. |
-| Intro · filler · outro | The three backgrounds. |
-| Stage & players, MIDI · OSC · keys, Sync & logging | Every other setting of the show file, with its default and an explanation. |
-| Media | The clips with length, size, frame rate and codec; frame rate or size that differs from the stage is flagged. |
-| Checks & rehearsal | `check`, `verify`, `selftest`, `rehearse`, the MIDI/OSC monitor, `devices` — with their output live. |
-| Codec choice | `bench` on selected files and decoders; generating test clips. |
-| Windows setup | `scripts/prepare-stage-laptop.ps1`: check (dry run), apply, administrator items, revert; desktop shortcuts and autostart. |
-| Logs & reports | Every session's report and events. |
-| Show file | The file as it is on disk; open another file. |
+The screenshots show a demo show (six songs, generated test clips) on a
+Windows computer with the projector as the second screen.
+
+### Live
+
+The page the panel opens with. Start and stop the show; what is on stage (the
+song, its position and remaining time, the drift against the trigger clock,
+the state of the three players); the next cue and the inputs; GO, previous,
+next, blackout, filler, intro, outro and the test overlay; the set list (click:
+select the next cue, double-click: start it now); the event log of the running
+session.
+
+![Live](images/panel-live.png)
+
+### Playlist
+
+One row per song in set order: id, title, clip (with length, picture size,
+frame rate and codec once the clips have been read), MIDI note with its name
+and a *learn* button (play the note), offset, what happens at the end, and the
+song's transitions (click to override the global ones). `⋯` holds the OSC
+trigger, program change and MTC start. Drag rows to reorder; clips in the media
+folder that are not in the playlist can be added with one click.
+
+![Playlist](images/panel-playlist.png)
+
+### Transitions
+
+The global in- and out-transitions and a preview of every type and blend mode
+(animated; still while the show runs).
+
+![Transitions](images/panel-transitions.png)
+
+### Intro · filler · outro
+
+The three backgrounds: a colour, a still image or a video loop each; intro and
+outro are optional.
+
+![Intro, filler, outro](images/panel-backgrounds.png)
+
+### Stage & players
+
+The stage screen (automatic: the projector as the extended screen), the
+picture size and frame rate, the display engine, mpv and hardware decoding.
+
+![Stage and players](images/panel-stage.png)
+
+### MIDI · OSC · keys
+
+The MIDI input (with the inputs that are connected), command notes, OSC, and
+the keys of every command.
+
+![MIDI, OSC, keys](images/panel-inputs.png)
+
+### Sync & logging
+
+Latency compensation, drift correction, MTC, logging and the test overlay (the
+same layout as the pages above).
+
+### Media
+
+The clips in the media folder: length, picture, codec, and whether they fit the
+stage (frame rate or size that differs is flagged); which ones the show uses.
+
+![Media](images/panel-media.png)
+
+### Checks & rehearsal
+
+`check`, `verify`, the self-test, the rehearsal of the whole set, the MIDI/OSC
+monitor and the device list; their output appears live below the buttons.
+
+![Checks and rehearsal](images/panel-checks.png)
+
+### Codec choice
+
+The codec benchmark on chosen files and decoders, and the test clips for it.
+
+![Codec choice](images/panel-codec.png)
+
+### Windows setup
+
+Checks the Windows settings of the show laptop (a dry run that lists every
+setting with its current and wanted value), applies them reversibly, runs the
+administrator items, reverts; creates the shortcuts and the autostart.
+
+![Windows setup](images/panel-windows.png)
+
+### Logs & reports
+
+Every session: the report after the show (each cue with its trigger, start
+latency, dropped frames and drift, and every problem) and all events. The
+newest session opens first.
+
+![Logs and reports](images/panel-logs.png)
+
+### Show file
+
+The show file as it is on disk; open another one.
 
 ## The panel and the show on one laptop
 

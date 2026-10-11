@@ -46,6 +46,9 @@ REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ c
 - **Control panel** (`Aethra panel`): edit the show and the playlist, run the
   checks, the codec benchmark and the Windows preparation, start and watch the
   show, read the reports — [docs/control-panel.md](docs/control-panel.md).
+
+  ![The control panel during a show](docs/images/panel-live.png)
+
 - One shortcut to start, optional autostart, no internet needed at run time.
 
 Built on [mpv](https://mpv.io/): libmpv players composed on the GPU by a

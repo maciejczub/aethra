@@ -976,6 +976,7 @@ async function pageLogsLoad(box, list) {
   list.innerHTML = "";
   for (const l of logs) list.append(h("div", { class: "entry row", onclick: () => showLog(box, l.name) }, h("b", {}, l.name.replace("aethra-", "").replace(".jsonl", "")), h("span", { class: "spacer" }), h("small", {}, fmtSize(l.size))));
   if (!logs.length) list.append(h("div", { class: "muted" }, "no logs yet"));
+  else showLog(box, logs[0].name);  // the newest session right away
 }
 
 async function showLog(box, name) {
