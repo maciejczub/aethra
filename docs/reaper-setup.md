@@ -104,46 +104,116 @@ Never use Wi-Fi for the show connection.
 
 ### 2.3 rtpMIDI sessions
 
-1. Install [rtpMIDI](https://www.tobias-erichsen.de/software/rtpmidi.html) by
-   Tobias Erichsen on both computers. The current download is version 1.1.14.
-   The site lists Windows 7 to 10, so test it on Windows 11 (**verify on your
-   system**). The installer checks for Apple's Bonjour and suggests installing
-   it if it is missing. Bonjour only finds peers on the local network and needs
-   no internet. rtpMIDI runs as a Windows service, so its ports exist from boot
-   even when the rtpMIDI window is closed.
-2. On each computer, open rtpMIDI and click **+** under *My Sessions*. Set the
-   fields *before* ticking *Enabled*. The port can only be changed while the
-   session is disabled.
+[rtpMIDI](https://www.tobias-erichsen.de/software/rtpmidi.html) by Tobias
+Erichsen is a free Windows driver for RTP-MIDI (also called AppleMIDI or
+Network MIDI), the open standard that macOS and iOS have built in (RFC 6295).
+Each *session* is a MIDI port on its computer; two sessions connected over the
+network pass MIDI between them like a cable. Its author's step-by-step guide:
+[rtpMIDI tutorial](https://www.tobias-erichsen.de/software/rtpmidi/rtpmidi-tutorial.html).
+
+#### Before the tour: get the installers
+
+The venue has no internet for the laptop, so download everything beforehand
+and keep it on a USB stick:
+
+- **rtpMIDI** — the current download is version 1.1.14.247 (a zip with the
+  installer). The site lists Windows 7 to 10; on Windows 11 it is widely used,
+  but test it on your own computers (**verify on your system**).
+- **Apple Bonjour** — rtpMIDI needs it: without Bonjour the driver can neither
+  announce its sessions nor find other computers. The rtpMIDI installer checks
+  for it and links to Apple's download; *Bonjour Print Services for Windows*
+  from Apple's support site installs it on its own. Bonjour works on the local
+  network only and needs no internet. If the *Bonjour Service* was disabled
+  (`services.msc`), set it to *Automatic* and start it again.
+
+#### Install
+
+Install rtpMIDI (and Bonjour) on **both** computers and restart them.
+rtpMIDI runs as a Windows service that starts at boot: its MIDI ports exist
+even when the rtpMIDI window is closed, and the connections made below come
+back by themselves after a reboot.
+
+#### Create the sessions
+
+1. On each computer, open *rtpMIDI* (desktop icon) and click **+** under *My
+   Sessions*. On the right, under *Session*, set the fields *before* enabling
+   the session — the port can only be changed while it is disabled.
 
    | | REAPER computer | Show laptop |
    |---|---|---|
-   | Local name (this is the MIDI port name) | `AETHRA-REAPER` | `AETHRA-STAGE` |
-   | Bonjour name | leave the default (the computer name) | leave the default |
-   | Port | `5004` | `5004` |
+   | *Local name* — the MIDI port name programs see | `AETHRA-REAPER` | `AETHRA-STAGE` |
+   | *Bonjour name* — the name other computers see | leave the default (the computer name) | leave the default |
+   | *Port* | `5004` | `5004` |
 
-   Then tick *Enabled*. A session uses its port and the next one (UDP 5004 and
-   5005).
-3. On the show laptop, click **+** under *Directory* (*Add Remote Peer*):
-   Name `REAPER`, Host/Port `192.168.77.1:5004`. Select it and click
-   *Connect*. Each computer now lists the other under *Participants*, with a
-   latency (normally 0 ms on a direct cable).
-   - According to the rtpMIDI tutorial, the side that made the connection
-     re-establishes it after a reboot. Starting the connection from the laptop
-     covers a laptop restart in the middle of a set. Check reconnection after
-     unplugging the cable and after a reboot in rehearsal ([testing.md](testing.md),
-     tests 2 and 4).
-4. *Who may connect to me*: *Anyone* is fine on a private cable. If you choose
-   *Only computers in my directory*, add the other computer to the directory on
-   both sides.
-5. Leave *Live routings* empty.
+   Then tick the checkbox at the top of *Session* (or next to the session in
+   *My Sessions*): the session is enabled and announced on the network. A
+   session uses its port and the next one: **UDP 5004 and 5005**.
+2. *Who may connect to me* (per session): *Anyone*, *Noone* or *Only computers
+   in my directory*. On a private cable *Anyone* is fine. With *Only computers
+   in my directory*, each computer must have the other one in its directory.
+3. Leave *Live routings* empty: it routes a local hardware MIDI interface into
+   the session, which Aethra does not need.
 
-If the computers do not see each other, check the cable, the addresses and the
-Windows firewall on both sides. rtpMIDI must be allowed on the Private profile
-(UDP 5004–5005); **verify on your system** whether the installer added that
-rule.
+#### Connect
 
-If the REAPER computer is a Mac, use the network MIDI built into macOS (*Audio
-MIDI Setup*, MIDI Network Setup) on that side. rtpMIDI is compatible with it.
+4. On the show laptop, look at *Directory* (left). The REAPER computer usually
+   appears there by its Bonjour name. Because the cable has fixed addresses,
+   add it by address anyway, so that the connection does not depend on
+   discovery: click **+** under *Directory* and enter Name `REAPER`,
+   Host/Port `192.168.77.1:5004`.
+5. Select the entry and click **Connect**. Each computer now lists the other
+   under *Participants* with a latency figure (normally 0 ms on a direct cable).
+   **Disconnect** under *Participants* ends a connection.
+6. The side that makes a connection re-establishes it at every boot, and the
+   other side accepts it without doing anything. Making it from the laptop
+   covers the most likely case — a laptop restart in the middle of a set. Check
+   it in rehearsal: unplug the cable during a song, plug it back; reboot the
+   laptop ([testing.md](testing.md), tests 2 and 4).
+
+#### Firewall
+
+rtpMIDI needs UDP 5004–5005 in both directions, on both computers, on the
+network profile of the cable (*Private*, see 2.2). If the computers see each
+other but *Connect* does nothing, add the rule yourself — in an administrator
+PowerShell on each computer:
+
+```powershell
+New-NetFirewallRule -DisplayName "rtpMIDI (Aethra)" -Direction Inbound -Protocol UDP -LocalPort 5004,5005 -Profile Private -Action Allow
+```
+
+Bonjour discovery uses UDP 5353 (mDNS); a blocked mDNS only hides the peer from
+*Directory* — the manual entry from step 4 still connects.
+
+#### Check
+
+- rtpMIDI on both computers: the other computer under *Participants*.
+- REAPER (*Preferences > Audio > MIDI Outputs*): `AETHRA-REAPER` is listed and
+  enabled (2.4).
+- On the laptop: `.\Aethra.cmd devices` lists `AETHRA-STAGE`; `.\Aethra.cmd
+  monitor` (with the show stopped) prints the notes when REAPER plays the
+  `VIDEO CUES` track; in a running show the status shows `MIDI ok` (the control
+  panel: Live page).
+
+#### If the REAPER computer is a Mac
+
+macOS has RTP-MIDI built in: *Audio MIDI Setup > Window > Show MIDI Studio*,
+double-click *Network*. Under *My Sessions* click **+**, name the session
+`AETHRA-REAPER` (its *Local name* becomes the port name in REAPER), port
+`5004`, tick it. Under *Directory* click **+** and enter the laptop:
+`192.168.77.2`, port `5004`, then *Connect*. Give the Mac's cable adapter the
+fixed address `192.168.77.1` (*System Settings > Network*). The laptop side
+stays as above; rtpMIDI and macOS talk to each other directly.
+
+#### Good to know
+
+- RTP-MIDI was made for unreliable networks: it carries a *recovery journal*
+  that repairs lost packets. On a direct cable losses practically do not occur;
+  never use Wi-Fi for the show connection.
+- The laptop's network adapter must not go to sleep: turn its power saving off
+  ([windows-setup.md](windows-setup.md), network adapter). A USB Ethernet
+  adapter works as well as a built-in port; keep it on the same USB socket.
+- Keep the session names. Aethra finds the port by `midi.port` (a part of the
+  name), and REAPER's track routing refers to the port.
 
 ### 2.4 REAPER: enable the port as an output
 
@@ -608,6 +678,8 @@ once a second.
 
 | Symptom | Check / fix |
 |---|---|
+| rtpMIDI: the other computer is not in *Directory* | Bonjour is missing or its service is stopped (`services.msc` > *Bonjour Service*); mDNS (UDP 5353) blocked. Add the peer by address (2.3, step 4). |
+| rtpMIDI: *Connect* does nothing, no *Participants* | Cable and addresses (`ping 192.168.77.1`); the network is *Private* on both computers; UDP 5004–5005 allowed (2.3, *Firewall*); the session on both sides is enabled and *Who may connect to me* is not *Noone*. |
 | `monitor` shows nothing | In rtpMIDI, both sessions are *Enabled* and each computer lists the other under *Participants*. REAPER *MIDI Outputs*: the port is enabled. Track routing: *MIDI Hardware Output* is the port, and the track and item are not muted. `midi.port` matches a name in `.\Aethra.cmd devices`. No other program on the laptop holds the port. |
 | The port is missing in REAPER | The session was created or renamed after REAPER started. Reopen *Preferences > Audio > MIDI Outputs* or click *Reset all MIDI devices*, then pick the port again in the track routing. |
 | The port is missing on the laptop | Disable and re-enable the rtpMIDI session, or reboot. On Windows 11 with Windows MIDI Services, install the updates (dynamic ports such as rtpMIDI were a known issue, fixed from April 2026) and check whether the port name changed. |
