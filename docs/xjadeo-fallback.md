@@ -25,7 +25,7 @@ timeline video**, laid out exactly like the REAPER project:
 ```
 REAPER timecode  00:00:00:00          00:03:10:00                00:07:42:00
                  │ walk-on, talk      │ song 1                   │ song 2 ...
-MTC (25 fps) ────┴────────────────────┴──────────────────────────┴──────────────▶
+MTC (25 fps) ────┴────────────────────┴──────────────────────────┴──────────────>
 timeline video   │ filler / black     │ 01-opening.mp4           │ 02-second.mp4 ...
                  frame 0              frame 4750                 frame 11550
 ```

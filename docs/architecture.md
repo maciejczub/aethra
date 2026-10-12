@@ -11,9 +11,9 @@ desktop, no dialog, no frozen picture that cannot be recovered.
 ```
  REAPER computer                         show laptop (Windows)
  ┌──────────────┐  MIDI note / OSC   ┌──────────────────────────────────────────┐
- │ backing track│ ─────────────────▶ │ Aethra controller (Python, asyncio)      │
+ │ backing track│ ─────────────────> │ Aethra controller (Python, asyncio)      │
  │ cue notes    │  MTC (optional)    │   MIDI (WinMM) · OSC (UDP) · hotkeys     │
- └──────────────┘ ─────────────────▶ │   show state machine · drift correction  │
+ └──────────────┘ ─────────────────> │   show state machine · drift correction  │
      rtpMIDI over Ethernet or        │   event log · state file · backdrop      │
      USB MIDI interfaces             │        │ JSON IPC (named pipes)          │
                                      │ ┌──────┴───────────────────────────────┐ │

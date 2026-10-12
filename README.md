@@ -14,7 +14,7 @@ shows a filler. Whatever goes wrong, the stage output never shows a dialog, a
 frozen picture or the Windows desktop.
 
 ```
-REAPER ──MIDI note / OSC / MTC──▶ Aethra (Python) ──IPC──▶ compositor: 3 × libmpv + OpenGL ──▶ projector / LED wall
+REAPER ──MIDI note / OSC / MTC──> Aethra (Python) ──IPC──> compositor: 3 × libmpv + OpenGL ──> projector / LED wall
 ```
 
 - **Instant, synchronous starts.** The next clip waits in a second player,

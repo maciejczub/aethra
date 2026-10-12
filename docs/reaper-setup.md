@@ -31,17 +31,17 @@ precise and has more pitfalls (section 7).
 ```
  REAPER computer  192.168.77.1                        show laptop  192.168.77.2
 ┌────────────────────────────────────┐               ┌──────────────────────────────────┐
-│ backing tracks ─▶ audio interface ─┼─▶ PA          │                                  │
+│ backing tracks ─> audio interface ─┼─> PA          │                                  │
 │                                    │               │                                  │
 │ VIDEO CUES track (notes, ch. 16) ─┐│               │                                  │
 │ MTC track (generator item) ───────┤│   Ethernet    │                                  │
-│                     rtpMIDI ◀─────┘│ direct cable  │                                  │
-│                     AETHRA-REAPER ═╪═══════════════╪═▶ AETHRA-STAGE ─▶ Aethra ─▶ mpv ─┼─▶ projector
+│                     rtpMIDI <─────┘│ direct cable  │                                  │
+│                     AETHRA-REAPER ═╪═══════════════╪═> AETHRA-STAGE ─> Aethra ─> mpv ─┼─> projector
 │ OSC control surface (optional) ────┼─── UDP 9000 ──┼─────────────────────┘            │
 └────────────────────────────────────┘               └──────────────────────────────────┘
 
  alternative to Ethernet + rtpMIDI:
- USB MIDI interface ── 5-pin MIDI cable ──▶ USB MIDI interface
+ USB MIDI interface ── 5-pin MIDI cable ──> USB MIDI interface
 ```
 
 `AETHRA-REAPER` and `AETHRA-STAGE` are the rtpMIDI session names used in this
@@ -345,7 +345,7 @@ REAPER settings that matter on the show computer:
  timeline   ··count-in··│ bar 1 of the song ══════════════════════════
  VIDEO CUES             ▮  note 38, channel 16, 1/16 long  (item "03 Ballad n38")
  MTC        ════════════════════════════════════════════════  (one item, whole show)
- Aethra                 ▶  frame 0 of 03-ballad.mp4 on stage   (offset 0)
+ Aethra                 >  frame 0 of 03-ballad.mp4 on stage   (offset 0)
 ```
 
 ### 4.2 Note numbers, not note names
