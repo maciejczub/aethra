@@ -8,24 +8,7 @@ transitions: cuts, cross-fades, fades through black or white, or blend modes.
 The design goal is that the stage output never shows anything else: no
 desktop, no dialog, no frozen picture that cannot be recovered.
 
-```
- REAPER computer                         show laptop (Windows)
- ┌──────────────┐  MIDI note / OSC   ┌──────────────────────────────────────────┐
- │ backing track│ ─────────────────> │ Aethra controller (Python, asyncio)      │
- │ cue notes    │  MTC (optional)    │   MIDI (WinMM) · OSC (UDP) · hotkeys     │
- └──────────────┘ ─────────────────> │   show state machine · drift correction  │
-     rtpMIDI over Ethernet or        │   event log · state file · backdrop      │
-     USB MIDI interfaces             │        │ JSON IPC (named pipes)          │
-                                     │ ┌──────┴───────────────────────────────┐ │
-                                     │ │ compositor (separate process)        │ │
-                                     │ │  layer F   layer A   layer B  libmpv │ │
-                                     │ │  intro/    cue deck  cue deck        │ │
-                                     │ │  filler/outro                        │ │
-                                     │ │  └── OpenGL: transitions, blend ──┐  │ │
-                                     │ └───────────────────────────────────┼──┘ │
-                                     └─────────────────────────────────────┼────┘
-                                                                           ▼ stage output
-```
+![Aethra: REAPER sends MIDI cues (and optionally MTC, OSC) to the show laptop; the controller drives the compositor, whose three libmpv layers are composed with OpenGL and sent to the projector; the control panel runs on the laptop screen](images/architecture.svg)
 
 ## Two display engines
 

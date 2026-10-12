@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="1000" height="640" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+  <title>Aethra architecture</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6c7"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00a47c"/>
+    </marker>
+    <style>
+      .title { fill: #ffffff; font-size: 17px; font-weight: 600; }
+      .head { fill: #ffffff; font-size: 15px; font-weight: 600; }
+      .text { fill: #d6dcef; font-size: 13px; }
+      .muted { fill: #9aa6c7; font-size: 12px; }
+      .label { fill: #c9d1ea; font-size: 12.5px; }
+      .box { fill: #0b1a3d; stroke: #2a3b6e; stroke-width: 1.5; }
+      .outer { fill: none; stroke: #3a4d86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .line { stroke: #9aa6c7; stroke-width: 1.8; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="640" rx="18" fill="#06142f"/>
+
+  <!-- REAPER computer -->
+  <text x="40" y="44" class="title">REAPER computer</text>
+  <rect x="30" y="60" width="250" height="250" rx="12" class="box"/>
+  <text x="50" y="94" class="text">backing tracks → audio interface → PA</text>
+  <rect x="50" y="112" width="210" height="44" rx="8" fill="#14245a" stroke="#6b3dd4" stroke-width="1.5"/>
+  <text x="62" y="132" class="head" font-size="13.5">VIDEO CUES track</text>
+  <text x="62" y="148" class="muted">one note per song, MIDI channel 16</text>
+  <rect x="50" y="168" width="210" height="44" rx="8" fill="#14245a" stroke="#2a3b6e" stroke-width="1.5"/>
+  <text x="62" y="188" class="head" font-size="13.5">MTC track (optional)</text>
+  <text x="62" y="204" class="muted">25 fps MIDI Time Code</text>
+  <rect x="50" y="224" width="210" height="44" rx="8" fill="#14245a" stroke="#2a3b6e" stroke-width="1.5"/>
+  <text x="62" y="244" class="head" font-size="13.5">OSC (optional)</text>
+  <text x="62" y="260" class="muted">REAPER control surface</text>
+
+  <!-- connections -->
+  <path d="M260 160 H 382" class="line" marker-end="url(#arrow)"/>
+  <text x="290" y="150" class="label">MIDI</text>
+  <text x="290" y="182" class="muted">rtpMIDI over</text>
+  <text x="290" y="197" class="muted">Ethernet, or</text>
+  <text x="290" y="212" class="muted">USB MIDI</text>
+  <path d="M260 246 H 382" class="line" marker-end="url(#arrow)"/>
+  <text x="290" y="238" class="label">OSC (UDP)</text>
+
+  <!-- show laptop -->
+  <text x="372" y="44" class="title">show laptop (Windows)</text>
+  <rect x="362" y="60" width="610" height="420" rx="14" class="outer"/>
+
+  <rect x="386" y="84" width="310" height="186" rx="12" class="box" stroke="#6b3dd4"/>
+  <text x="404" y="112" class="head">Aethra controller</text>
+  <text x="404" y="130" class="muted">Python, asyncio</text>
+  <text x="404" y="158" class="text">MIDI (WinMM) · OSC (UDP) · hotkeys</text>
+  <text x="404" y="182" class="text">show state machine · transitions</text>
+  <text x="404" y="206" class="text">drift correction (clock or MTC)</text>
+  <text x="404" y="230" class="text">event log · state file</text>
+  <text x="404" y="254" class="text">black backdrop window</text>
+
+  <rect x="740" y="84" width="208" height="186" rx="12" class="box"/>
+  <text x="758" y="112" class="head">Control panel</text>
+  <text x="758" y="130" class="muted">aethra gui · laptop screen</text>
+  <text x="758" y="158" class="text">show and playlist editor</text>
+  <text x="758" y="182" class="text">live view and control</text>
+  <text x="758" y="206" class="text">checks · codec · Windows</text>
+  <text x="758" y="230" class="text">logs and reports</text>
+  <path d="M738 176 H 700" class="line" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text x="704" y="292" class="muted" text-anchor="start">status file / OSC</text>
+  <path d="M719 176 V 280" stroke="#9aa6c7" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+
+  <path d="M541 272 V 318" class="line" marker-end="url(#arrow)"/>
+  <text x="552" y="300" class="label">JSON IPC (named pipes)</text>
+
+  <rect x="386" y="320" width="562" height="138" rx="12" class="box"/>
+  <text x="404" y="346" class="head">Compositor</text>
+  <text x="494" y="346" class="muted">separate process · one window on the stage screen</text>
+  <g>
+    <rect x="404" y="360" width="160" height="50" rx="8" fill="#14245a" stroke="#2a3b6e"/>
+    <text x="416" y="381" class="head" font-size="13.5">layer F</text>
+    <text x="416" y="398" class="muted">intro · filler · outro</text>
+    <rect x="578" y="360" width="160" height="50" rx="8" fill="#14245a" stroke="#2a3b6e"/>
+    <text x="590" y="381" class="head" font-size="13.5">layer A</text>
+    <text x="590" y="398" class="muted">cue deck</text>
+    <rect x="752" y="360" width="178" height="50" rx="8" fill="#14245a" stroke="#2a3b6e"/>
+    <text x="764" y="381" class="head" font-size="13.5">layer B</text>
+    <text x="764" y="398" class="muted">cue deck (next cue, preloaded)</text>
+  </g>
+  <text x="404" y="440" class="text">each layer: libmpv → texture · OpenGL: transitions, 25 blend modes</text>
+
+  <!-- stage output -->
+  <path d="M667 458 V 548" stroke="#00a47c" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+  <text x="680" y="510" class="label">stage output (second, extended screen)</text>
+  <rect x="560" y="552" width="214" height="56" rx="10" fill="#0b2a2a" stroke="#00a47c" stroke-width="1.5"/>
+  <text x="667" y="585" class="head" text-anchor="middle">projector / LED wall</text>
+</svg>
