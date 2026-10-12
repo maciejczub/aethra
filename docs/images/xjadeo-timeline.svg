@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+  <title>The xjadeo timeline video follows MTC</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6c7"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00a47c"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <style>
+      .title { fill: #ffffff; font-size: 17px; font-weight: 600; }
+      .head { fill: #ffffff; font-size: 14px; font-weight: 600; }
+      .text { fill: #d6dcef; font-size: 13px; }
+      .muted { fill: #9aa6c7; font-size: 12px; }
+      .label { fill: #c9d1ea; font-size: 12.5px; }
+      .mono { fill: #d6dcef; font-size: 12.5px; font-family: Cascadia Mono, Consolas, Menlo, monospace; }
+      .box { fill: #0b1a3d; stroke: #2a3b6e; stroke-width: 1.5; }
+      .tile { fill: #14245a; stroke: #2a3b6e; stroke-width: 1.5; }
+      .key { fill: #14245a; stroke: #6b3dd4; stroke-width: 1.5; }
+      .outer { fill: none; stroke: #3a4d86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .line { stroke: #9aa6c7; stroke-width: 1.8; fill: none; }
+      .violet { stroke: #8b5cf6; stroke-width: 2.2; fill: none; }
+      .green { stroke: #00a47c; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="300" rx="18" fill="#06142f"/>
+
+  <text x="30" y="58" class="head">REAPER timecode</text>
+  <text x="200" y="58" class="mono">00:00:00:00</text>
+  <text x="440" y="58" class="mono">00:03:10:00</text>
+  <text x="720" y="58" class="mono">00:07:42:00</text>
+  <path d="M200 70 V 250 M440 70 V 250 M720 70 V 250" stroke="#3a4d86" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="210" y="96" class="muted">walk-on, talk</text>
+  <text x="450" y="96" class="muted">song 1</text>
+  <text x="730" y="96" class="muted">song 2 …</text>
+  <text x="30" y="141" class="head">MTC (25 fps)</text>
+  <path d="M200 136 H 960" class="violet" marker-end="url(#arrow-violet)"/>
+  <text x="30" y="196" class="head">timeline video</text>
+  <rect x="200" y="176" width="236" height="34" rx="6" fill="#1b2340" stroke="#3a4d86"/>
+  <text x="318" y="198" class="text" text-anchor="middle">filler / black</text>
+  <rect x="444" y="176" width="272" height="34" rx="6" class="key"/>
+  <text x="580" y="198" class="text" text-anchor="middle">01-opening.mp4</text>
+  <rect x="724" y="176" width="236" height="34" rx="6" class="key"/>
+  <text x="842" y="198" class="text" text-anchor="middle">02-second.mp4 …</text>
+  <text x="200" y="240" class="mono">frame 0</text>
+  <text x="440" y="240" class="mono">frame 4750</text>
+  <text x="720" y="240" class="mono">frame 11550</text>
+  <text x="30" y="278" class="muted">xjadeo shows file frame = incoming MTC frame + offset</text>
+
+</svg>

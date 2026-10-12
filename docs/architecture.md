@@ -122,14 +122,7 @@ the same way. All progress values are eased (smoothstep).
 
 ## The compositor
 
-```
-render loop (one thread, vsync):
-  window events → control commands → for each layer with a new frame:
-      make the layer's GL context current, render the frame into its texture,
-      fence → composite: base layer, then each running transition's entries,
-      then the blackout overlay, ping-ponging between two frame buffers
-      → draw to the window → swap → tell every layer when the frame was shown
-```
+![Compositor render loop, once per refresh on one thread: window events and control commands; layers with a new frame render it into their texture (own GL context, fence); composite the base layer, running transitions and the blackout; draw to the stage window; swap at the vertical refresh; tell every layer when its frame was shown](images/compositor-loop.svg)
 
 * **Layers.** Each layer has its own OpenGL context that shares textures with
   the window's context (libmpv expects to find its context as it left it; GPU
@@ -159,12 +152,7 @@ covers the stage monitor for the whole session. With the compositor engine the
 order is simply: compositor window, backdrop. With the window engine the decks'
 windows are kept in this order (top to bottom):
 
-```
-visible deck  ─ what the audience sees
-filler deck F ─ instantly visible if the visible cue deck dies
-backdrop      ─ black, instantly visible if the filler deck dies too
-hidden decks  ─ the preloaded next cue, never visible by accident
-```
+![Window engine stacking order from top to bottom: visible deck (what the audience sees), filler deck F (instantly visible if the visible cue deck dies), black backdrop (instantly visible if the filler deck dies too), hidden decks (the preloaded next cue, never visible by accident)](images/window-stacking.svg)
 
 During a blackout (window engine) the backdrop is moved to the top; the
 compositor draws its blackout itself. Rules that keep the stacking safe:

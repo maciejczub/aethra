@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 240" width="1000" height="240" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+  <title>Compositor render loop</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6c7"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00a47c"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <style>
+      .title { fill: #ffffff; font-size: 17px; font-weight: 600; }
+      .head { fill: #ffffff; font-size: 14px; font-weight: 600; }
+      .text { fill: #d6dcef; font-size: 13px; }
+      .muted { fill: #9aa6c7; font-size: 12px; }
+      .label { fill: #c9d1ea; font-size: 12.5px; }
+      .mono { fill: #d6dcef; font-size: 12.5px; font-family: Cascadia Mono, Consolas, Menlo, monospace; }
+      .box { fill: #0b1a3d; stroke: #2a3b6e; stroke-width: 1.5; }
+      .tile { fill: #14245a; stroke: #2a3b6e; stroke-width: 1.5; }
+      .key { fill: #14245a; stroke: #6b3dd4; stroke-width: 1.5; }
+      .outer { fill: none; stroke: #3a4d86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .line { stroke: #9aa6c7; stroke-width: 1.8; fill: none; }
+      .violet { stroke: #8b5cf6; stroke-width: 2.2; fill: none; }
+      .green { stroke: #00a47c; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="240" rx="18" fill="#06142f"/>
+  <rect x="30" y="70" width="124" height="92" rx="10" class="box"/>
+  <text x="44" y="98" class="head">window events</text>
+  <text x="44" y="120" class="muted">and control</text>
+  <text x="44" y="135" class="muted">commands</text>
+  <path d="M154 116 H 168" class="line" marker-end="url(#arrow)"/>
+  <rect x="170" y="70" width="200" height="92" rx="10" class="box"/>
+  <text x="184" y="98" class="head">new frames</text>
+  <text x="184" y="120" class="muted">each layer renders into its</text>
+  <text x="184" y="135" class="muted">texture (own GL context),</text>
+  <text x="184" y="150" class="muted">fence</text>
+  <path d="M370 116 H 384" class="line" marker-end="url(#arrow)"/>
+  <rect x="386" y="70" width="176" height="92" rx="10" class="box"/>
+  <text x="400" y="98" class="head">composite</text>
+  <text x="400" y="120" class="muted">base layer, running</text>
+  <text x="400" y="135" class="muted">transitions, blackout</text>
+  <path d="M562 116 H 576" class="line" marker-end="url(#arrow)"/>
+  <rect x="578" y="70" width="110" height="92" rx="10" class="box"/>
+  <text x="592" y="98" class="head">draw</text>
+  <text x="592" y="120" class="muted">to the stage</text>
+  <text x="592" y="135" class="muted">window</text>
+  <path d="M688 116 H 702" class="line" marker-end="url(#arrow)"/>
+  <rect x="704" y="70" width="110" height="92" rx="10" class="box"/>
+  <text x="718" y="98" class="head">swap</text>
+  <text x="718" y="120" class="muted">at the</text>
+  <text x="718" y="135" class="muted">vertical</text>
+  <text x="718" y="150" class="muted">refresh</text>
+  <path d="M814 116 H 828" class="line" marker-end="url(#arrow)"/>
+  <rect x="830" y="70" width="140" height="92" rx="10" class="box"/>
+  <text x="844" y="98" class="head">report</text>
+  <text x="844" y="120" class="muted">tell each layer</text>
+  <text x="844" y="135" class="muted">when its frame was</text>
+  <text x="844" y="150" class="muted">shown</text>
+  <path d="M900 162 V 196 H 92 V 164" class="line" marker-end="url(#arrow)"/>
+  <text x="530" y="218" class="muted" text-anchor="middle">once per refresh (vsync), on one thread</text>
+  <text x="30" y="46" class="title">Compositor render loop</text>
+</svg>

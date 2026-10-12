@@ -13,9 +13,7 @@ played by [REAPER](https://www.reaper.fm/) on another computer. Between songs it
 shows a filler. Whatever goes wrong, the stage output never shows a dialog, a
 frozen picture or the Windows desktop.
 
-```
-REAPER ──MIDI note / OSC / MTC──> Aethra (Python) ──IPC──> compositor: 3 × libmpv + OpenGL ──> projector / LED wall
-```
+![REAPER sends MIDI notes, OSC and MTC to the Aethra controller, which drives the compositor (3 × libmpv + OpenGL) that feeds the projector or LED wall](docs/images/overview.svg)
 
 - **Instant, synchronous starts.** The next clip waits in a second player,
   paused on its first frame; a MIDI note (or OSC message) from REAPER just

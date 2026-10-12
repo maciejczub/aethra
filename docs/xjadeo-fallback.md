@@ -22,13 +22,7 @@ xjadeo shows *file frame = incoming MTC frame + offset*. It knows nothing about
 songs, cues or fillers. The fallback therefore needs **one long video, the
 timeline video**, laid out exactly like the REAPER project:
 
-```
-REAPER timecode  00:00:00:00          00:03:10:00                00:07:42:00
-                 │ walk-on, talk      │ song 1                   │ song 2 ...
-MTC (25 fps) ────┴────────────────────┴──────────────────────────┴──────────────>
-timeline video   │ filler / black     │ 01-opening.mp4           │ 02-second.mp4 ...
-                 frame 0              frame 4750                 frame 11550
-```
+![The timeline video follows REAPER's timecode: filler or black from 00:00:00:00 (frame 0), 01-opening.mp4 from 00:03:10:00 (frame 4750), 02-second.mp4 from 00:07:42:00 (frame 11550); xjadeo shows file frame = MTC frame + offset](images/xjadeo-timeline.svg)
 
 - Every clip sits where Aethra would show it: clip position `offset` at the
   song's trigger timecode (`mtc_start`). Filler or black fills the gaps.

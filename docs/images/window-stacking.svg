@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 320" width="1000" height="320" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+  <title>Window engine stacking order</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6c7"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00a47c"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <style>
+      .title { fill: #ffffff; font-size: 17px; font-weight: 600; }
+      .head { fill: #ffffff; font-size: 14px; font-weight: 600; }
+      .text { fill: #d6dcef; font-size: 13px; }
+      .muted { fill: #9aa6c7; font-size: 12px; }
+      .label { fill: #c9d1ea; font-size: 12.5px; }
+      .mono { fill: #d6dcef; font-size: 12.5px; font-family: Cascadia Mono, Consolas, Menlo, monospace; }
+      .box { fill: #0b1a3d; stroke: #2a3b6e; stroke-width: 1.5; }
+      .tile { fill: #14245a; stroke: #2a3b6e; stroke-width: 1.5; }
+      .key { fill: #14245a; stroke: #6b3dd4; stroke-width: 1.5; }
+      .outer { fill: none; stroke: #3a4d86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .line { stroke: #9aa6c7; stroke-width: 1.8; fill: none; }
+      .violet { stroke: #8b5cf6; stroke-width: 2.2; fill: none; }
+      .green { stroke: #00a47c; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="320" rx="18" fill="#06142f"/>
+  <text x="30" y="44" class="title">Window engine: stacking order on the stage screen</text>
+  <text x="30" y="68" class="muted">top</text>
+  <text x="30" y="306" class="muted">bottom</text>
+  <path d="M48 76 V 286" class="line" marker-start="url(#arrow)"/>
+  <rect x="80" y="80" width="260" height="44" rx="8" fill="#6b3dd4" stroke="#4a5d96" stroke-width="1.5"/>
+  <text x="96" y="108" class="head">visible deck</text>
+  <text x="430" y="108" class="text">what the audience sees</text>
+  <rect x="94" y="134" width="260" height="44" rx="8" fill="#3b4f8f" stroke="#4a5d96" stroke-width="1.5"/>
+  <text x="110" y="162" class="head">filler deck F</text>
+  <text x="430" y="162" class="text">instantly visible if the visible cue deck dies</text>
+  <rect x="108" y="188" width="260" height="44" rx="8" fill="#000000" stroke="#4a5d96" stroke-width="1.5"/>
+  <text x="124" y="216" class="head">backdrop</text>
+  <text x="430" y="216" class="text">black, instantly visible if the filler deck dies too</text>
+  <rect x="122" y="242" width="260" height="44" rx="8" fill="#1b2340" stroke="#4a5d96" stroke-width="1.5"/>
+  <text x="138" y="270" class="head">hidden decks</text>
+  <text x="430" y="270" class="text">the preloaded next cue, never visible by accident</text>
+</svg>

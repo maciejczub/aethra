@@ -28,21 +28,7 @@ precise and has more pitfalls (section 7).
 
 ## 1. Overview
 
-```
- REAPER computer  192.168.77.1                        show laptop  192.168.77.2
-┌────────────────────────────────────┐               ┌──────────────────────────────────┐
-│ backing tracks ─> audio interface ─┼─> PA          │                                  │
-│                                    │               │                                  │
-│ VIDEO CUES track (notes, ch. 16) ─┐│               │                                  │
-│ MTC track (generator item) ───────┤│   Ethernet    │                                  │
-│                     rtpMIDI <─────┘│ direct cable  │                                  │
-│                     AETHRA-REAPER ═╪═══════════════╪═> AETHRA-STAGE ─> Aethra ─> mpv ─┼─> projector
-│ OSC control surface (optional) ────┼─── UDP 9000 ──┼─────────────────────┘            │
-└────────────────────────────────────┘               └──────────────────────────────────┘
-
- alternative to Ethernet + rtpMIDI:
- USB MIDI interface ── 5-pin MIDI cable ──> USB MIDI interface
-```
+![The REAPER computer (192.168.77.1) sends the VIDEO CUES notes and MTC through the rtpMIDI session AETHRA-REAPER over a direct Ethernet cable to the session AETHRA-STAGE on the show laptop (192.168.77.2), where Aethra drives the compositor and the projector; optional OSC on UDP 9000 uses the same cable. Alternative: two USB MIDI interfaces and a 5-pin MIDI cable](images/reaper-connection.svg)
 
 `AETHRA-REAPER` and `AETHRA-STAGE` are the rtpMIDI session names used in this
 guide (2.3); each is the MIDI port name on its computer.
@@ -341,12 +327,7 @@ REAPER settings that matter on the show computer:
     track items, so that a tempo edit moves both or neither. After any tempo
     edit, read `mtc_start` again (4.5).
 
-```
- timeline   ··count-in··│ bar 1 of the song ══════════════════════════
- VIDEO CUES             ▮  note 38, channel 16, 1/16 long  (item "03 Ballad n38")
- MTC        ════════════════════════════════════════════════  (one item, whole show)
- Aethra                 >  frame 0 of 03-ballad.mp4 on stage   (offset 0)
-```
+![At bar 1 of the song the VIDEO CUES track has note 38 on channel 16, 1/16 long (item 03 Ballad n38); one MTC item runs through the whole show; Aethra shows frame 0 of 03-ballad.mp4 at the note (offset 0)](images/reaper-cue-timeline.svg)
 
 ### 4.2 Note numbers, not note names
 

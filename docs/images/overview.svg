@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 170" width="1000" height="170" font-family="Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif">
+  <title>Aethra overview</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6c7"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00a47c"/>
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <style>
+      .title { fill: #ffffff; font-size: 17px; font-weight: 600; }
+      .head { fill: #ffffff; font-size: 14px; font-weight: 600; }
+      .text { fill: #d6dcef; font-size: 13px; }
+      .muted { fill: #9aa6c7; font-size: 12px; }
+      .label { fill: #c9d1ea; font-size: 12.5px; }
+      .mono { fill: #d6dcef; font-size: 12.5px; font-family: Cascadia Mono, Consolas, Menlo, monospace; }
+      .box { fill: #0b1a3d; stroke: #2a3b6e; stroke-width: 1.5; }
+      .tile { fill: #14245a; stroke: #2a3b6e; stroke-width: 1.5; }
+      .key { fill: #14245a; stroke: #6b3dd4; stroke-width: 1.5; }
+      .outer { fill: none; stroke: #3a4d86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .line { stroke: #9aa6c7; stroke-width: 1.8; fill: none; }
+      .violet { stroke: #8b5cf6; stroke-width: 2.2; fill: none; }
+      .green { stroke: #00a47c; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="170" rx="18" fill="#06142f"/>
+
+  <rect x="30" y="50" width="170" height="70" rx="12" class="box"/>
+  <text x="115" y="81" class="head" text-anchor="middle">REAPER</text>
+  <text x="115" y="101" class="muted" text-anchor="middle">backing track, cue notes</text>
+  <path d="M200 85 H 278" class="line" marker-end="url(#arrow)"/>
+  <text x="239" y="68" class="muted" text-anchor="middle">MIDI note</text>
+  <text x="239" y="108" class="muted" text-anchor="middle">OSC · MTC</text>
+  <rect x="280" y="50" width="200" height="70" rx="12" class="key" fill="#0b1a3d"/>
+  <text x="380" y="81" class="head" text-anchor="middle">Aethra controller</text>
+  <text x="380" y="101" class="muted" text-anchor="middle">Python · show logic · sync</text>
+  <path d="M480 85 H 558" class="line" marker-end="url(#arrow)"/>
+  <text x="519" y="76" class="muted" text-anchor="middle">IPC</text>
+  <rect x="560" y="50" width="220" height="70" rx="12" class="box"/>
+  <text x="670" y="81" class="head" text-anchor="middle">Compositor</text>
+  <text x="670" y="101" class="muted" text-anchor="middle">3 × libmpv + OpenGL</text>
+  <path d="M780 85 H 828" class="green" marker-end="url(#arrow-green)"/>
+  <rect x="830" y="50" width="140" height="70" rx="12" fill="#0b2a2a" stroke="#00a47c" stroke-width="1.5"/>
+  <text x="900" y="81" class="head" text-anchor="middle">projector</text>
+  <text x="900" y="101" class="muted" text-anchor="middle">LED wall</text>
+  <text x="500" y="150" class="muted" text-anchor="middle">show laptop (Windows): controller, compositor and the control panel</text>
+
+</svg>
